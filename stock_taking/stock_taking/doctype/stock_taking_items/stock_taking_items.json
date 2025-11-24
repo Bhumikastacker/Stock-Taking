@@ -1,0 +1,65 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2025-10-30 12:58:23.131541",
+ "doctype": "DocType",
+ "document_type": "Other",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code",
+  "warehouse",
+  "inventory",
+  "physical_count",
+  "difference"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "inventory",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Inventory"
+  },
+  {
+   "fieldname": "physical_count",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Physical Count"
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Difference"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Warehouse",
+   "options": "Warehouse"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-11-06 14:53:46.118257",
+ "modified_by": "Administrator",
+ "module": "Stock Taking",
+ "name": "Stock taking Items",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "ASC",
+ "states": []
+}
