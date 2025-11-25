@@ -9,6 +9,8 @@
   "section_break_lda4",
   "naming_series",
   "company",
+  "scan_barcode",
+  "stock_reconciliation",
   "column_break_neog",
   "stock_selection",
   "amended_from",
@@ -71,13 +73,33 @@
    "fieldtype": "Table MultiSelect",
    "label": "Warehouse",
    "options": "stock taking Warehouse"
+  },
+  {
+   "fieldname": "scan_barcode",
+   "fieldtype": "Data",
+   "label": "Scan Barcode",
+   "options": "Barcode"
+  },
+  {
+   "fieldname": "stock_reconciliation",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Stock Reconciliation",
+   "options": "Stock Reconciliation",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
- "links": [],
- "modified": "2025-11-07 10:16:22.190569",
+ "links": [
+  {
+   "link_doctype": "Stock Reconciliation",
+   "link_fieldname": "custom_stock_taking"
+  }
+ ],
+ "modified": "2025-11-25 21:21:33.026091",
  "modified_by": "Administrator",
  "module": "Stock Taking",
  "name": "Stock Taking",

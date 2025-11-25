@@ -24,6 +24,7 @@
   {
    "fieldname": "inventory",
    "fieldtype": "Float",
+   "hidden": 1,
    "in_list_view": 1,
    "label": "Inventory"
   },
@@ -51,7 +52,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-11-06 14:53:46.118257",
+ "modified": "2025-11-25 20:37:36.609466",
  "modified_by": "Administrator",
  "module": "Stock Taking",
  "name": "Stock taking Items",
