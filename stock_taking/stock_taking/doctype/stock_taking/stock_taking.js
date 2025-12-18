@@ -244,14 +244,14 @@ frappe.ui.form.on('Stock Taking', {
     stock_selection(frm) {
         console.log("[Stock Taking] stock_selection changed →", frm.doc.stock_selection);
         frm.set_value('warehouse', '');
-        frm.clear_table('items');
+        // frm.clear_table('items');
         frm.refresh_field('items');
         apply_warehouse_filter(frm);
     },
 
     warehouse(frm) {
         console.log("[Stock Taking] warehouse selected →", frm.doc.warehouse);
-        frm.clear_table("items");
+        // frm.clear_table("items");
         frm.refresh_field("items");
     },
 
@@ -263,58 +263,64 @@ frappe.ui.form.on('Stock Taking', {
     // Barcode scan: add rows from Bin for scanned code
     scan_barcode(frm) {
         if (!frm.doc.scan_barcode) return;
-
-        let scanned_code = frm.doc.scan_barcode;
+        // frm.clear_table("items");
+        // frm.refresh_field("items");
+        const scanned_code = frm.doc.scan_barcode;
         let warehouse_list = [];
 
-        if (frm.doc.warehouse && frm.doc.warehouse.length > 0) {
-            // support both 'warehouse' and possible typo 'warehuose'
-            warehouse_list = frm.doc.warehouse.map(w => w.warehouse || w.warehuose).filter(Boolean);
+        if (frm.doc.warehouse?.length) {
+            warehouse_list = frm.doc.warehouse
+                .map(w => w.warehouse || w.warehuose)
+                .filter(Boolean);
         }
-
+        
         frappe.call({
-            method: "frappe.client.get_list",
+            method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.scan_barcode",
             args: {
-                doctype: "Bin",
-                fields: ["item_code", "warehouse", "actual_qty"],
-                filters: {
-                    item_code: scanned_code,
-                    warehouse: ["in", warehouse_list]
-                },
-                limit: 50
-            },
-            freeze: true,
-            freeze_message: __("Fetching scanned item...")
+                code: scanned_code,
+                warehouses: warehouse_list
+            }
         }).then(r => {
-            (r.message || []).forEach(bin => {
-                let existing_row = frm.doc.items.find(row =>
-                    row.item_code === bin.item_code &&
-                    row.warehouse === bin.warehouse
-                );
+            const res = r.message;
 
-                if (existing_row) {
-                    // keep existing physical_count (do not overwrite)
-                    existing_row.physical_count = (existing_row.physical_count || 0);
-                } else {
-                    let row = frm.add_child("items");
-                    row.item_code = bin.item_code;
-                    row.warehouse = bin.warehouse;
-                    row.inventory = bin.actual_qty;
-                    row.physical_count = 0;
-                }
-            });
+            if (!res || !res.success) {
+                frappe.msgprint(res?.message || __("Invalid barcode"));
+                return;
+            }
 
-            frm.refresh_field("items");
+            if (res.type === "serial") {
+                handle_serial_scan(frm, res.result);
+            }
+
+            else if (res.type === "item") {
+                res.result.forEach(bin => {
+                    let row = frm.doc.items.find(d =>
+                        d.item_code === bin.item_code &&
+                        d.warehouse === bin.warehouse
+                    );
+
+                    if (!row) {
+                        row = frm.add_child("items");
+                        row.item_code = bin.item_code;
+                        row.warehouse = bin.warehouse;
+                        row.inventory = bin.actual_qty;
+                        row.physical_count = 0;
+                    }
+                });
+
+                frm.refresh_field("items");
+            }
+        }).finally(() => {
             frm.set_value("scan_barcode", "");
-        }).catch(err => {
-            console.error("[Stock Taking] scan_barcode error:", err);
-            frappe.msgprint(__("Error fetching scanned item."));
         });
+
     },
 
     // BEFORE SUBMIT: ensure a DRAFT Stock Reconciliation exists, but DO NOT save here
     // IMPORTANT: do not call frm.save() or frm.save_or_submit() inside this handler
     async before_submit(frm) {
+
+
         // Default: block submit until we explicitly validate
         frappe.validated = false;
 
@@ -351,12 +357,14 @@ frappe.ui.form.on('Stock Taking', {
 
 // Create a Draft Stock Reconciliation and return the inserted doc (message)
 async function create_stock_reconciliation(frm) {
+
     const items = (frm.doc.items || []).map(row => ({
         item_code: row.item_code,
         warehouse: row.warehouse,
         qty: row.physical_count || 0,
         custom_stock_taking: frm.doc.name,
-        custom_stock_taking_item: row.name
+        custom_stock_taking_item: row.name,
+        use_serial_batch_fields: 1
     }));
 
     const doc = {
@@ -382,13 +390,13 @@ async function create_stock_reconciliation(frm) {
 }
 
 
-// Calculate difference for each item row
 function calculate_differences(frm) {
     let changed = false;
 
     (frm.doc.items || []).forEach(row => {
         const inventory = flt(row.inventory) || 0;
         const physical = flt(row.physical_count) || 0;
+
         const diff = Math.abs(physical - inventory);
 
         if (row.difference !== diff) {
@@ -401,6 +409,7 @@ function calculate_differences(frm) {
         frm.refresh_field("items");
     }
 }
+
 
 
 // Warehouse filter helpers
@@ -443,5 +452,32 @@ function apply_warehouse_filter(frm) {
     }
 }
 
+
+
+function handle_serial_scan(frm, serial) {
+
+    if (serial.status !== "Active") {
+        frappe.msgprint(__("Serial is not active"));
+        return;
+    }
+
+    let row = frm.doc.items.find(d =>
+        d.item_code === serial.item_code &&
+        d.warehouse === serial.warehouse
+    );
+
+    if (!row) {
+        row = frm.add_child("items");
+        row.item_code = serial.item_code;
+        row.warehouse = serial.warehouse;
+
+        row.inventory = 1;
+        row.physical_count = 0;
+    }
+
+    row.physical_count = 1;
+
+    frm.refresh_field("items");
+}
 
 
