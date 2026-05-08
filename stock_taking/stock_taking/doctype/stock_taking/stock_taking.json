@@ -103,9 +103,13 @@
   {
    "link_doctype": "Stock Reconciliation",
    "link_fieldname": "custom_stock_taking"
+  },
+  {
+   "link_doctype": "Stock Entry",
+   "link_fieldname": "custom_stock_taking"
   }
  ],
- "modified": "2025-12-07 11:25:17.044985",
+ "modified": "2026-05-06 11:08:56.274575",
  "modified_by": "Administrator",
  "module": "Stock Taking",
  "name": "Stock Taking",
