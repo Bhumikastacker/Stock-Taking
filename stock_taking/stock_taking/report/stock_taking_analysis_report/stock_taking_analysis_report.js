@@ -46,6 +46,14 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             fieldtype: "Link",
             options: "Stock Taking",
             width: 180
+        },
+
+        // ✅ NEW CHECKBOX
+        {
+            fieldname: "show_serial_no",
+            label: __("Segregate Serial No"),
+            fieldtype: "Check",
+            default: 0
         }
     ]
 };

@@ -5,7 +5,7 @@ from frappe.utils import flt
 
 def execute(filters=None):
 
-    columns = get_columns()
+    columns = get_columns(filters)
     data = get_data(filters)
 
     # =========================
@@ -46,9 +46,9 @@ def execute(filters=None):
 
     return columns, data
 
-def get_columns():
+def get_columns(filters=None):
 
-    return [
+    columns = [
 
         {
             "label": "Stock Taking",
@@ -201,6 +201,17 @@ def get_columns():
         }
     ]
 
+    # ✅ SHOW SERIAL COLUMN
+    if filters.get("show_serial_no"):
+
+        columns.append({
+            "label": "Serial No",
+            "fieldname": "serial_no",
+            "fieldtype": "HTML",
+            "width": 400
+        })
+
+    return columns
 
 def get_data(filters):
 
@@ -226,14 +237,23 @@ def get_data(filters):
 
     return frappe.db.sql(f"""
 
-        SELECT
+    SELECT
 
-            st.name as stock_taking,
-            st.company as owner_site,
+        st.name as stock_taking,
+        st.company as owner_site,
 
-            sti.item_code,
+        GROUP_CONCAT(
+            DISTINCT sti.serial_no
+            SEPARATOR '<br>'
+        ) as serial_no,
 
-            i.brand as article_name,
+        sti.difference as stock_adj_qty,
+
+        sti.warehouse as stock_point,
+
+        sti.item_code,
+
+        i.brand as article_name,
 
             ip_mrp.price_list_rate as standard_rate,
 
@@ -277,10 +297,15 @@ def get_data(filters):
             ON ip_wsp.item_code = sti.item_code
             AND ip_wsp.price_list = 'WSP'
 
-        WHERE st.docstatus = 1
+       WHERE st.docstatus = 1
 
-        {conditions}
+{conditions}
 
-        ORDER BY st.creation DESC
+GROUP BY
+    st.name,
+    sti.item_code,
+    sti.warehouse
+
+ORDER BY st.creation DESC
 
     """, as_dict=1)
