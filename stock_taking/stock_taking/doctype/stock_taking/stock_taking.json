@@ -87,8 +87,6 @@
   {
    "fieldname": "stock_reconciliation",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
    "label": "Stock Reconciliation",
    "options": "Stock Reconciliation",
    "read_only": 1
@@ -113,7 +111,7 @@
    "link_fieldname": "custom_stock_taking"
   }
  ],
- "modified": "2026-05-09 15:03:21.519141",
+ "modified": "2026-05-09 20:51:30.821834",
  "modified_by": "Administrator",
  "module": "Stock Taking",
  "name": "Stock Taking",

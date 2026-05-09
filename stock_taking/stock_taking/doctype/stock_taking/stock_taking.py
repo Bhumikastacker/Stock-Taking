@@ -154,3 +154,15 @@ def make_serial_active(serials):
         frappe.db.set_value("Serial No", s, {
             "status": "Active"
         })
+
+@frappe.whitelist()
+def get_warehouse_serials(warehouse):
+
+    return frappe.db.sql("""
+        SELECT
+            name as serial_no,
+            item_code
+        FROM `tabSerial No`
+        WHERE warehouse = %s
+        AND status = 'Active'
+    """, warehouse, as_dict=1)
