@@ -397,6 +397,7 @@ frappe.ui.form.on('Stock Taking', {
     // }
 
     //new
+
 async before_submit(frm) {
 
     frappe.validated = false;
@@ -406,35 +407,59 @@ async before_submit(frm) {
         let issue_items = [];
         let receipt_items = [];
 
+        // =====================================
+        // ✅ GROUP ALL ROWS
+        // =====================================
+        let grouped_rows = {};
+
         for (let row of (frm.doc.items || [])) {
 
-            // =====================================
-            // ✅ CLEAN SCANNED SERIALS
-            // =====================================
-            let scanned_serials = row.serial_no
-                ? [...new Set(
-                    row.serial_no
-                        .split("\n")
-                        .map(s => s.trim())
-                        .filter(Boolean)
-                )]
-                : [];
-
-            // =====================================
-            // ❗ WAREHOUSE REQUIRED
-            // =====================================
             if (!row.warehouse) {
                 frappe.throw(`Warehouse missing for item ${row.item_code}`);
             }
 
+            let key = `${row.item_code}__${row.warehouse}`;
+
+            let serials = row.serial_no
+                ? row.serial_no
+                    .split("\n")
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                : [];
+
+            if (!grouped_rows[key]) {
+
+                grouped_rows[key] = {
+                    item_code: row.item_code,
+                    warehouse: row.warehouse,
+                    scanned_serials: [],
+                    stock_taking_item: row.name
+                };
+            }
+
+            grouped_rows[key].scanned_serials.push(...serials);
+        }
+
+        // =====================================
+        // ✅ PROCESS GROUPED DATA
+        // =====================================
+        for (let key in grouped_rows) {
+
+            let data = grouped_rows[key];
+
+            // remove duplicate
+            let scanned_serials = [
+                ...new Set(data.scanned_serials)
+            ];
+
             // =====================================
-            // 🔥 GET ACTIVE SYSTEM SERIALS
+            // 🔥 GET ACTIVE SERIALS
             // =====================================
             let r = await frappe.call({
                 method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_system_serials",
                 args: {
-                    item_code: row.item_code,
-                    warehouse: row.warehouse
+                    item_code: data.item_code,
+                    warehouse: data.warehouse
                 }
             });
 
@@ -443,82 +468,67 @@ async before_submit(frm) {
                 .filter(Boolean);
 
             // =====================================
-            // 🔻 MISSING SERIALS
+            // ✅ ACTIVE SERIALS SCANNED
             // =====================================
-            let missing = system_serials.filter(
-                s => !scanned_serials.includes(s)
+            let scanned_active = scanned_serials.filter(
+                s => system_serials.includes(s)
             );
 
             // =====================================
-            // 🔺 EXTRA / DELIVERED SERIALS
+            // 🔻 ACTIVE NOT SCANNED
+            // =====================================
+            let missing = system_serials.filter(
+                s => !scanned_active.includes(s)
+            );
+
+            // =====================================
+            // 🔺 DELIVERED/INACTIVE SCANNED
             // =====================================
             let extra = scanned_serials.filter(
                 s => !system_serials.includes(s)
             );
 
             // =====================================
-            // 🔥 DIFFERENCE CALCULATION
+            // 🔻 MATERIAL ISSUE
             // =====================================
-            let difference =
-                flt(row.physical_count) - flt(row.inventory);
+            if (missing.length > 0) {
 
-           // =====================================
-// 🔻 MATERIAL ISSUE
-// =====================================
-if (missing.length > 0) {
-
-    issue_items.push({
-        item_code: row.item_code,
-        warehouse: row.warehouse,
-
-        // active serials not scanned
-        serial_no: missing.join("\n"),
-
-        qty: missing.length,
-
-        stock_taking_item: row.name
-    });
-}
-
-// =====================================
-// 🔺 MATERIAL RECEIPT
-// =====================================
-if (extra.length > 0) {
-
-    receipt_items.push({
-        item_code: row.item_code,
-        warehouse: row.warehouse,
-
-        // delivered/inactive scanned serials
-        serial_no: extra.join("\n"),
-
-        qty: extra.length,
-
-        stock_taking_item: row.name
-    });
-}
+                issue_items.push({
+                    item_code: data.item_code,
+                    warehouse: data.warehouse,
+                    serial_no: missing.join("\n"),
+                    qty: missing.length,
+                    stock_taking_item: data.stock_taking_item
+                });
+            }
 
             // =====================================
-            // 🔍 DEBUG LOGS
+            // 🔺 MATERIAL RECEIPT
             // =====================================
+            if (extra.length > 0) {
+
+                receipt_items.push({
+                    item_code: data.item_code,
+                    warehouse: data.warehouse,
+                    serial_no: extra.join("\n"),
+                    qty: extra.length,
+                    stock_taking_item: data.stock_taking_item
+                });
+            }
+
             console.log("=================================");
-            console.log("ITEM:", row.item_code);
-            console.log("WAREHOUSE:", row.warehouse);
-            console.log("INVENTORY:", row.inventory);
-            console.log("PHYSICAL:", row.physical_count);
-            console.log("DIFFERENCE:", difference);
-            console.log("SYSTEM:", system_serials);
+            console.log("ITEM:", data.item_code);
+            console.log("SYSTEM:", system_serials.length);
             console.log("SCANNED:", scanned_serials);
-            console.log("MISSING:", missing);
-            console.log("EXTRA:", extra);
+            console.log("SCANNED ACTIVE:", scanned_active);
+            console.log("MISSING:", missing.length);
+            console.log("EXTRA:", extra.length);
         }
 
         // =====================================
-        // 🔥 CREATE MATERIAL ISSUE
+        // 🔥 CREATE ISSUE
         // =====================================
         if (issue_items.length > 0) {
-
-            console.log("Creating Material Issue");
 
             await create_stock_entry(
                 frm,
@@ -528,11 +538,9 @@ if (extra.length > 0) {
         }
 
         // =====================================
-        // 🔥 CREATE MATERIAL RECEIPT
+        // 🔥 CREATE RECEIPT
         // =====================================
         if (receipt_items.length > 0) {
-
-            console.log("Creating Material Receipt");
 
             await create_stock_entry(
                 frm,
@@ -541,14 +549,11 @@ if (extra.length > 0) {
             );
         }
 
-        // =====================================
-        // ✅ ALLOW SUBMIT
-        // =====================================
         frappe.validated = true;
 
     } catch (err) {
 
-        console.error("Stock Entry Error:", err);
+        console.error(err);
 
         frappe.validated = false;
 
