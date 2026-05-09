@@ -462,37 +462,36 @@ async before_submit(frm) {
             let difference =
                 flt(row.physical_count) - flt(row.inventory);
 
-            // =====================================
-            // 🔻 MATERIAL ISSUE
-            // =====================================
-            if (difference < 0 && missing.length > 0) {
+           // =====================================
+// 🔻 MATERIAL ISSUE
+// =====================================
+if (missing.length > 0) {
 
     issue_items.push({
         item_code: row.item_code,
         warehouse: row.warehouse,
 
-        // ONLY MISSING SERIALS
+        // active serials not scanned
         serial_no: missing.join("\n"),
 
-        // ✅ SERIAL COUNT ONLY
         qty: missing.length,
 
         stock_taking_item: row.name
     });
 }
 
-            // =====================================
-            // 🔺 MATERIAL RECEIPT
-            // =====================================
-          if (extra.length > 0) {
+// =====================================
+// 🔺 MATERIAL RECEIPT
+// =====================================
+if (extra.length > 0) {
 
     receipt_items.push({
         item_code: row.item_code,
         warehouse: row.warehouse,
 
+        // delivered/inactive scanned serials
         serial_no: extra.join("\n"),
 
-        // ✅ EXTRA SERIAL COUNT
         qty: extra.length,
 
         stock_taking_item: row.name
