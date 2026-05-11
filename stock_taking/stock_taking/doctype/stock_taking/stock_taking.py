@@ -166,3 +166,44 @@ def get_warehouse_serials(warehouse):
         WHERE warehouse = %s
         AND status = 'Active'
     """, warehouse, as_dict=1)
+
+
+@frappe.whitelist()
+def get_non_serialized_stock(warehouse):
+
+    data = frappe.db.sql("""
+
+        SELECT
+
+            b.item_code,
+            b.actual_qty
+
+        FROM `tabBin` b
+
+        INNER JOIN `tabItem` i
+            ON i.name = b.item_code
+
+        WHERE
+            b.warehouse = %s
+            AND b.actual_qty > 0
+            AND IFNULL(i.has_serial_no, 0) = 0
+
+    """, (warehouse,), as_dict=1)
+
+    return data
+
+@frappe.whitelist()
+def create_stock_entry(doc):
+
+    import json
+
+    if isinstance(doc, str):
+        doc = json.loads(doc)
+
+    se = frappe.get_doc(doc)
+
+    se.insert(ignore_permissions=True)
+
+    frappe.db.commit()
+
+    return se
