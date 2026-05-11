@@ -18,6 +18,7 @@
   "plan_date",
   "remark",
   "section_break_kaix",
+  "total_quantity",
   "items"
  ],
  "fields": [
@@ -100,6 +101,13 @@
    "fieldname": "remark",
    "fieldtype": "Small Text",
    "label": "Remark"
+  },
+  {
+   "fieldname": "total_quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Total Quantity",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
@@ -111,7 +119,7 @@
    "link_fieldname": "custom_stock_taking"
   }
  ],
- "modified": "2026-05-09 20:51:30.821834",
+ "modified": "2026-05-11 11:49:43.979296",
  "modified_by": "Administrator",
  "module": "Stock Taking",
  "name": "Stock Taking",
