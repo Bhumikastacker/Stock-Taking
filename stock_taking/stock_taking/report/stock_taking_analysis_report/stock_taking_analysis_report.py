@@ -46,6 +46,7 @@ def execute(filters=None):
 
     return columns, data
 
+
 def get_columns(filters=None):
 
     columns = [
@@ -70,7 +71,7 @@ def get_columns(filters=None):
             "fieldname": "item_code",
             "fieldtype": "Link",
             "options": "Item",
-            "width": 150
+            "width": 180
         },
 
         {
@@ -201,7 +202,9 @@ def get_columns(filters=None):
         }
     ]
 
-    # ✅ SHOW SERIAL COLUMN
+    # =========================
+    # SHOW SERIAL COLUMN
+    # =========================
     if filters.get("show_serial_no"):
 
         columns.append({
@@ -213,10 +216,14 @@ def get_columns(filters=None):
 
     return columns
 
+
 def get_data(filters):
 
     conditions = ""
 
+    # =========================
+    # FILTERS
+    # =========================
     if filters.get("company"):
         conditions += f" AND st.company = '{filters.get('company')}' "
 
@@ -224,10 +231,10 @@ def get_data(filters):
         conditions += f" AND st.name = '{filters.get('stock_taking')}' "
 
     if filters.get("item_code"):
-        conditions += f" AND sti.item_code = '{filters.get('item_code')}' "
+        conditions += f" AND sle.item_code = '{filters.get('item_code')}' "
 
     if filters.get("warehouse"):
-        conditions += f" AND sti.warehouse = '{filters.get('warehouse')}' "
+        conditions += f" AND sle.warehouse = '{filters.get('warehouse')}' "
 
     if filters.get("from_date"):
         conditions += f" AND st.plan_date >= '{filters.get('from_date')}' "
@@ -235,25 +242,20 @@ def get_data(filters):
     if filters.get("to_date"):
         conditions += f" AND st.plan_date <= '{filters.get('to_date')}' "
 
+    # =========================
+    # MAIN QUERY
+    # =========================
     return frappe.db.sql(f"""
 
-    SELECT
+        SELECT
 
-        st.name as stock_taking,
-        st.company as owner_site,
+            st.name as stock_taking,
 
-        GROUP_CONCAT(
-            DISTINCT sti.serial_no
-            SEPARATOR '<br>'
-        ) as serial_no,
+            st.company as owner_site,
 
-        sti.difference as stock_adj_qty,
+            sle.item_code,
 
-        sti.warehouse as stock_point,
-
-        sti.item_code,
-
-        i.brand as article_name,
+            i.brand as article_name,
 
             ip_mrp.price_list_rate as standard_rate,
 
@@ -274,38 +276,64 @@ def get_data(filters):
             i.custom_size as category5,
             i.custom_dupatta_length as category6,
 
-            sti.inventory as book_stock,
-            sti.physical_count as physical_stock,
-            sti.difference as difference,
-            sti.difference as stock_adj_qty,
+            SUM(sle.actual_qty) as book_stock,
 
-            sti.warehouse as stock_point
+            COALESCE(sti.physical_count, 0) as physical_stock,
 
-        FROM `tabStock Taking` st
+            (
+                COALESCE(sti.physical_count, 0)
+                -
+                SUM(sle.actual_qty)
+            ) as difference,
 
-        INNER JOIN `tabStock taking Items` sti
+            (
+                COALESCE(sti.physical_count, 0)
+                -
+                SUM(sle.actual_qty)
+            ) as stock_adj_qty,
+
+            sle.warehouse as stock_point,
+
+            GROUP_CONCAT(
+                DISTINCT sti.serial_no
+                SEPARATOR '<br>'
+            ) as serial_no
+
+        FROM `tabStock Ledger Entry` sle
+
+        INNER JOIN `tabStock Taking` st
+            ON st.docstatus = 1
+
+        LEFT JOIN `tabStock taking Items` sti
             ON sti.parent = st.name
+            AND sti.item_code = sle.item_code
+            AND sti.warehouse = sle.warehouse
 
         LEFT JOIN `tabItem` i
-            ON i.name = sti.item_code
+            ON i.name = sle.item_code
 
         LEFT JOIN `tabItem Price` ip_mrp
-            ON ip_mrp.item_code = sti.item_code
+            ON ip_mrp.item_code = sle.item_code
             AND ip_mrp.price_list = 'MRP'
 
         LEFT JOIN `tabItem Price` ip_wsp
-            ON ip_wsp.item_code = sti.item_code
+            ON ip_wsp.item_code = sle.item_code
             AND ip_wsp.price_list = 'WSP'
 
-       WHERE st.docstatus = 1
+        WHERE
+            sle.is_cancelled = 0
+            {conditions}
 
-{conditions}
+        GROUP BY
+            st.name,
+            sle.item_code,
+            sle.warehouse
 
-GROUP BY
-    st.name,
-    sti.item_code,
-    sti.warehouse
+        HAVING
+            book_stock != 0
+            OR physical_stock != 0
 
-ORDER BY st.creation DESC
+        ORDER BY
+            st.creation DESC
 
     """, as_dict=1)
