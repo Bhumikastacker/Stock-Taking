@@ -269,6 +269,7 @@ frappe.ui.form.on('Stock Taking', {
     refresh(frm) {
         console.log("[Stock Taking] refresh triggered");
         apply_warehouse_filter(frm);
+         update_total_quantity(frm);
     },
 
     company(frm) {
@@ -565,7 +566,7 @@ frappe.ui.form.on('Stock Taking', {
 // }
 
   //warehouse wise serial no physical active/delivered
-async before_submit(frm) {
+ async before_submit(frm) {
 
     frappe.validated = false;
 
@@ -592,7 +593,9 @@ async before_submit(frm) {
 
             let warehouse = row.warehouse;
 
-            // scanned serials
+            // =====================================
+            // ✅ SERIALS
+            // =====================================
             let serials = row.serial_no
                 ? row.serial_no
                     .split("\n")
@@ -600,14 +603,18 @@ async before_submit(frm) {
                     .filter(Boolean)
                 : [];
 
-            // warehouse wise scanned
+            // =====================================
+            // ✅ WAREHOUSE SCANNED SERIALS
+            // =====================================
             if (!warehouse_scanned[warehouse]) {
                 warehouse_scanned[warehouse] = [];
             }
 
             warehouse_scanned[warehouse].push(...serials);
 
-            // item wise map
+            // =====================================
+            // ✅ ITEM MAP
+            // =====================================
             let key = `${row.item_code}__${warehouse}`;
 
             if (!scanned_item_map[key]) {
@@ -615,11 +622,19 @@ async before_submit(frm) {
                 scanned_item_map[key] = {
                     item_code: row.item_code,
                     warehouse: warehouse,
-                    serials: []
+                    serials: [],
+                    inventory: 0,
+                    physical_count: 0
                 };
             }
 
             scanned_item_map[key].serials.push(...serials);
+
+            scanned_item_map[key].inventory +=
+                flt(row.inventory);
+
+            scanned_item_map[key].physical_count +=
+                flt(row.physical_count);
         }
 
         // =====================================
@@ -633,15 +648,13 @@ async before_submit(frm) {
         }
 
         // =====================================
-        // 🔥 PROCESS WHOLE WAREHOUSE
+        // 🔥 SERIALIZED ITEM ISSUE
         // =====================================
         for (let warehouse in warehouse_scanned) {
 
-            let scanned_serials = warehouse_scanned[warehouse];
+            let scanned_serials =
+                warehouse_scanned[warehouse];
 
-            // =====================================
-            // 🔥 GET ALL ACTIVE SERIALS OF WAREHOUSE
-            // =====================================
             let r = await frappe.call({
                 method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_warehouse_serials",
                 args: {
@@ -652,15 +665,12 @@ async before_submit(frm) {
             let warehouse_serials = r.message || [];
 
             // =====================================
-            // 🔻 NOT SCANNED = MATERIAL ISSUE
+            // 🔻 NOT SCANNED SERIALS
             // =====================================
             let missing_serials = warehouse_serials.filter(
                 s => !scanned_serials.includes(s.serial_no)
             );
 
-            // =====================================
-            // 🔥 CREATE ISSUE ROWS
-            // =====================================
             missing_serials.forEach(d => {
 
                 issue_items.push({
@@ -673,11 +683,78 @@ async before_submit(frm) {
         }
 
         // =====================================
+        // 🔥 NON SERIALIZED ISSUE
+        // WHOLE WAREHOUSE
+        // =====================================
+        for (let warehouse in warehouse_scanned) {
+
+            // =====================================
+            // 🔥 GET ALL NON SERIAL ITEMS
+            // =====================================
+            let r = await frappe.call({
+                method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_non_serialized_stock",
+                args: {
+                    warehouse: warehouse
+                }
+            });
+
+            let warehouse_items = r.message || [];
+
+            warehouse_items.forEach(stock_item => {
+
+                let key =
+                    `${stock_item.item_code}__${warehouse}`;
+
+                // =====================================
+                // ✅ SCANNED QTY
+                // =====================================
+                let scanned_qty = 0;
+
+                if (scanned_item_map[key]) {
+
+                    scanned_qty =
+                        flt(scanned_item_map[key].physical_count);
+                }
+
+                // =====================================
+                // ✅ SYSTEM QTY
+                // =====================================
+                let system_qty =
+                    flt(stock_item.actual_qty);
+
+                // =====================================
+                // 🔻 DIFFERENCE
+                // =====================================
+                let difference =
+                    system_qty - scanned_qty;
+
+                if (difference > 0) {
+
+                    issue_items.push({
+
+                        item_code: stock_item.item_code,
+
+                        warehouse: warehouse,
+
+                        serial_no: "",
+
+                        qty: difference
+                    });
+                }
+            });
+        }
+
+        // =====================================
         // 🔺 RECEIPT LOGIC
         // =====================================
         for (let key in scanned_item_map) {
 
             let data = scanned_item_map[key];
+
+            // skip non serial item
+            if (data.serials.length === 0) {
+                continue;
+            }
 
             let r = await frappe.call({
                 method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_system_serials",
@@ -743,44 +820,48 @@ async before_submit(frm) {
             (err.message || err)
         );
     }
-}
+}   
 });
 
  //warehouse wise serial no physical active/delivered
 
 
   //item wise serial no physical active/delivered
+
 async function create_stock_entry(frm, purpose, items) {
 
     let doc = {
+
         doctype: "Stock Entry",
 
-        // ✅ PARENT FIELDS
         stock_entry_type: purpose,
+
         company: frm.doc.company,
 
-        // ✅ STOCK TAKING LINK IN PARENT
         custom_stock_taking: frm.doc.name,
 
-        // ✅ EMPTY FIELD
         custom_to_company: "",
 
         posting_date: frappe.datetime.now_date(),
+
         posting_time: frappe.datetime.now_time(),
 
         items: []
     };
 
+    // =====================================
     // 🔥 MERGE SAME ITEM + WAREHOUSE
+    // =====================================
     let grouped = {};
 
     items.forEach(d => {
 
-        let warehouse = d.warehouse || frm.doc.warehouse;
+        let warehouse =
+            d.warehouse || frm.doc.warehouse;
 
-        let key = `${d.item_code}__${warehouse}`;
+        let key =
+            `${d.item_code}__${warehouse}`;
 
-        // ✅ CLEAN SERIALS
         let serials = d.serial_no
             ? [...new Set(
                 d.serial_no
@@ -793,71 +874,130 @@ async function create_stock_entry(frm, purpose, items) {
         if (!grouped[key]) {
 
             grouped[key] = {
+
                 item_code: d.item_code,
+
                 warehouse: warehouse,
+
                 serials: [],
+
                 qty: 0,
-                stock_taking_item: d.stock_taking_item
+
+                stock_taking_item:
+                    d.stock_taking_item
             };
         }
 
+        // =====================================
         // ✅ MERGE SERIALS
+        // =====================================
         grouped[key].serials.push(...serials);
 
-        // ✅ REMOVE DUPLICATE
-        grouped[key].serials = [...new Set(grouped[key].serials)];
+        grouped[key].serials = [
+            ...new Set(grouped[key].serials)
+        ];
 
-        // ✅ QTY = SERIAL COUNT
-        grouped[key].qty = grouped[key].serials.length;
+        // =====================================
+        // ✅ SERIALIZED
+        // =====================================
+        if (serials.length > 0) {
+
+            grouped[key].qty =
+                grouped[key].serials.length;
+        }
+
+        // =====================================
+        // ✅ NON SERIALIZED
+        // =====================================
+        else {
+
+            grouped[key].qty +=
+                flt(d.qty || 0);
+        }
     });
 
-    // 🔥 CREATE FINAL ROWS
+    // =====================================
+    // 🔥 FINAL ROWS
+    // =====================================
     Object.values(grouped).forEach(d => {
 
         let row = {
+
             item_code: d.item_code,
 
-            // ✅ SERIAL COUNT
-            qty: d.serials.length,
+            qty: d.qty,
 
-            serial_no: d.serials.join("\n"),
+            serial_no: d.serials.length
+                ? d.serials.join("\n")
+                : "",
 
-            // ✅ CHILD LINK
-            custom_stock_taking: frm.doc.name,
-            custom_stock_taking_item: d.stock_taking_item
+            custom_stock_taking:
+                frm.doc.name,
+
+            custom_stock_taking_item:
+                d.stock_taking_item
         };
 
+        // =====================================
         // ✅ WAREHOUSE
+        // =====================================
         if (purpose === "Material Issue") {
+
             row.s_warehouse = d.warehouse;
-        } else {
+        }
+
+        else {
+
             row.t_warehouse = d.warehouse;
         }
 
         doc.items.push(row);
     });
 
-    console.log("FINAL STOCK ENTRY", doc);
+    console.log(
+        "FINAL STOCK ENTRY",
+        doc
+    );
 
+    // =====================================
     // 🔥 CREATE ENTRY
+    // =====================================
     let res = await frappe.call({
-        method: "frappe.client.insert",
+
+        method:"stock_taking.stock_taking.doctype.stock_taking.stock_taking.create_stock_entry",
+
         args: {
             doc: doc
-        }
+        },
+        freeze: true,
+        freeze_message: __("Creating Stock Entry...")
     });
 
-    // 🔥 ACTIVATE DELIVERED SERIALS
+    // ✅ IMPORTANT
+    if (res.message?.name) {
+
+        await frappe.model.sync(res.message);
+    }
+
+    // =====================================
+    // 🔥 ACTIVATE SERIALS
+    // =====================================
     if (purpose === "Material Receipt") {
 
         for (let d of Object.values(grouped)) {
 
-            await frappe.call({
-                method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.make_serial_active",
-                args: {
-                    serials: d.serials
-                }
-            });
+            if (d.serials.length > 0) {
+
+                await frappe.call({
+
+                    method:
+                        "stock_taking.stock_taking.doctype.stock_taking.stock_taking.make_serial_active",
+
+                    args: {
+                        serials: d.serials
+                    }
+                });
+            }
         }
     }
 
@@ -1274,6 +1414,23 @@ function process_scan(frm, scanned_code) {
 
     });
 }
+
+
+// ======================================
+// CHILD TABLE EVENTS
+// ======================================
+frappe.ui.form.on("Stock taking Items", {
+
+    physical_count(frm, cdt, cdn) {
+
+        update_total_quantity(frm);
+    },
+
+    items_remove(frm) {
+
+        update_total_quantity(frm);
+    }
+});
 
 function update_total_quantity(frm) {
 

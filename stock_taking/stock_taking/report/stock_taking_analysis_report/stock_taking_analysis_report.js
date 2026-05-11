@@ -2,19 +2,7 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
 
     filters: [
 
-        {
-            fieldname: "from_date",
-            label: __("From Date"),
-            fieldtype: "Date",
-            width: 120
-        },
-
-        {
-            fieldname: "to_date",
-            label: __("To Date"),
-            fieldtype: "Date",
-            width: 120
-        },
+        
 
         {
             fieldname: "company",
@@ -46,6 +34,19 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             fieldtype: "Link",
             options: "Stock Taking",
             width: 180
+        },
+        {
+            fieldname: "from_date",
+            label: __("From Date"),
+            fieldtype: "Date",
+            width: 120
+        },
+
+        {
+            fieldname: "to_date",
+            label: __("To Date"),
+            fieldtype: "Date",
+            width: 120
         },
 
         // ✅ NEW CHECKBOX
