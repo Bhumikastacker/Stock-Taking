@@ -1134,7 +1134,7 @@ function handle_serial_scan(frm, serial) {
             : [];
 
         // =========================================
-        // ✅ PREVENT DUPLICATE
+        //PREVENT DUPLICATE
         // =========================================
         if (!existing.includes(serial.name)) {
             existing.push(serial.name);
@@ -1148,6 +1148,9 @@ function handle_serial_scan(frm, serial) {
         row.physical_count = existing.length;
 
         frm.refresh_field("items");
+        
+        //UPDATE TOTAL QTY
+        update_total_quantity(frm);
     });
 }
 function process_scan(frm, scanned_code) {
@@ -1230,30 +1233,56 @@ function process_scan(frm, scanned_code) {
         // =====================================
         // ✅ ITEM SCAN
         // =====================================
-        else if (res.type === "item") {
+       else if (res.type === "item") {
 
-            res.result.forEach(bin => {
+    res.result.forEach(bin => {
 
-                let row = frm.doc.items.find(d =>
-                    d.item_code === bin.item_code &&
-                    d.warehouse === bin.warehouse
-                );
+        let row = frm.doc.items.find(d =>
+            d.item_code === bin.item_code &&
+            d.warehouse === bin.warehouse
+        );
 
-                if (!row) {
+        // =====================================
+        // ✅ CREATE NEW ROW
+        // =====================================
+        if (!row) {
 
-                    row = frm.add_child("items");
+            row = frm.add_child("items");
 
-                    row.item_code = bin.item_code;
-                    row.warehouse = bin.warehouse;
-                    row.serial_no = "";
-                }
+            row.item_code = bin.item_code;
+            row.warehouse = bin.warehouse;
 
-                row.physical_count = bin.actual_qty;
-                row.inventory = bin.actual_qty;
-            });
+            row.serial_no = "";
 
-            frm.refresh_field("items");
+            // ✅ SYSTEM STOCK
+            row.inventory = bin.actual_qty || 0;
+
+            // ✅ START WITH 0
+            row.physical_count = 0;
         }
 
+        // =====================================
+        // ✅ EVERY SCAN = +1
+        // =====================================
+        row.physical_count =
+            (flt(row.physical_count) || 0) + 1;
     });
+
+    frm.refresh_field("items");
+    update_total_quantity(frm);
+}
+
+    });
+}
+
+function update_total_quantity(frm) {
+
+    let total = 0;
+
+    (frm.doc.items || []).forEach(row => {
+
+        total += flt(row.physical_count || 0);
+    });
+
+    frm.set_value("total_quantity", total);
 }
