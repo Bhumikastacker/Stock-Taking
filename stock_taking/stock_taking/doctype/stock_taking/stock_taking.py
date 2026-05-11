@@ -58,16 +58,98 @@ class StockTaking(Document):
 #         }
 
 
+# @frappe.whitelist()
+# def scan_barcode(code, warehouses=None):
+#     try:
+#         if isinstance(warehouses, str):
+#             warehouses = frappe.parse_json(warehouses)
+
+#         # ===============================
+#         # 🔹 SERIAL SCAN
+#         # ===============================
+#         if frappe.db.exists("Serial No", code):
+#             serial = frappe.get_doc("Serial No", code)
+
+#             return {
+#                 "success": True,
+#                 "type": "serial",
+#                 "result": {
+#                     "name": serial.name,
+#                     "item_code": serial.item_code,
+#                     "warehouse": serial.warehouse,
+#                     "status": serial.status
+#                 }
+#             }
+
+#         # ===============================
+#         # 🔹 ITEM SCAN → BIN DATA
+#         # ===============================
+#         bin_filters = {
+#             "item_code": code
+#         }
+
+#         if warehouses:
+#             bin_filters["warehouse"] = ["in", warehouses]
+
+#         bins = frappe.get_all(
+#             "Bin",
+#             fields=["item_code", "warehouse", "actual_qty"],
+#             filters=bin_filters
+#         )
+
+#         if bins:
+
+#             # ===============================
+#             # 🔥 GET ACTIVE SERIALS (FIXED)
+#             # ===============================
+#             serial_filters = {
+#                 "item_code": code,
+#                 "status": "Active"
+#             }
+
+#             if warehouses:
+#                 serial_filters["warehouse"] = ["in", warehouses]
+
+#             serials = frappe.get_all(
+#                 "Serial No",
+#                 fields=["name"],
+#                 filters=serial_filters
+#             )
+
+#             return {
+#                 "success": True,
+#                 "type": "item",
+#                 "result": bins,
+#                 "serials": [s.name for s in serials]
+#             }
+
+#         return {
+#             "success": False,
+#             "message": "No Serial or Item found"
+#         }
+
+#     except Exception:
+#         frappe.log_error(frappe.get_traceback(), "scan_barcode error")
+#         return {
+#             "success": False,
+#             "message": "Scan failed"
+#         }
+
 @frappe.whitelist()
 def scan_barcode(code, warehouses=None):
+
     try:
+
         if isinstance(warehouses, str):
             warehouses = frappe.parse_json(warehouses)
 
-        # ===============================
+        warehouses = warehouses or []
+
+        # =====================================
         # 🔹 SERIAL SCAN
-        # ===============================
+        # =====================================
         if frappe.db.exists("Serial No", code):
+
             serial = frappe.get_doc("Serial No", code)
 
             return {
@@ -81,60 +163,96 @@ def scan_barcode(code, warehouses=None):
                 }
             }
 
-        # ===============================
-        # 🔹 ITEM SCAN → BIN DATA
-        # ===============================
-        bin_filters = {
-            "item_code": code
-        }
-
-        if warehouses:
-            bin_filters["warehouse"] = ["in", warehouses]
-
-        bins = frappe.get_all(
-            "Bin",
-            fields=["item_code", "warehouse", "actual_qty"],
-            filters=bin_filters
+        # =====================================
+        # 🔹 ITEM BARCODE
+        # =====================================
+        item_code = frappe.db.get_value(
+            "Item Barcode",
+            {"barcode": code},
+            "parent"
         )
 
-        if bins:
+        # =====================================
+        # 🔹 DIRECT ITEM CODE
+        # =====================================
+        if not item_code:
 
-            # ===============================
-            # 🔥 GET ACTIVE SERIALS (FIXED)
-            # ===============================
-            serial_filters = {
-                "item_code": code,
-                "status": "Active"
-            }
+            if frappe.db.exists("Item", code):
+                item_code = code
 
-            if warehouses:
-                serial_filters["warehouse"] = ["in", warehouses]
-
-            serials = frappe.get_all(
-                "Serial No",
-                fields=["name"],
-                filters=serial_filters
-            )
+        # =====================================
+        # ❌ ITEM NOT FOUND
+        # =====================================
+        if not item_code:
 
             return {
-                "success": True,
-                "type": "item",
-                "result": bins,
-                "serials": [s.name for s in serials]
+                "success": False,
+                "message": "No Serial or Item found"
             }
 
+        # =====================================
+        # 🔹 SELECTED WAREHOUSE
+        # =====================================
+        warehouse = warehouses[0] if warehouses else ""
+
+        # =====================================
+        # 🔹 GET BIN QTY
+        # =====================================
+        actual_qty = frappe.db.get_value(
+            "Bin",
+            {
+                "item_code": item_code,
+                "warehouse": warehouse
+            },
+            "actual_qty"
+        ) or 0
+
+        # =====================================
+        # 🔥 GET ACTIVE SERIALS
+        # =====================================
+        serial_filters = {
+            "item_code": item_code,
+            "status": "Active"
+        }
+
+        if warehouse:
+            serial_filters["warehouse"] = warehouse
+
+        serials = frappe.get_all(
+            "Serial No",
+            fields=["name"],
+            filters=serial_filters
+        )
+
+        # =====================================
+        # ✅ ALWAYS RETURN ITEM
+        # EVEN IF STOCK = 0
+        # =====================================
         return {
-            "success": False,
-            "message": "No Serial or Item found"
+            "success": True,
+            "type": "item",
+            "result": [
+                {
+                    "item_code": item_code,
+                    "warehouse": warehouse,
+                    "actual_qty": actual_qty
+                }
+            ],
+            "serials": [s.name for s in serials]
         }
 
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "scan_barcode error")
+
+        frappe.log_error(
+            frappe.get_traceback(),
+            "scan_barcode error"
+        )
+
         return {
             "success": False,
             "message": "Scan failed"
         }
-    
+
 @frappe.whitelist()
 def get_system_serials(item_code, warehouse):
     return frappe.get_all(
