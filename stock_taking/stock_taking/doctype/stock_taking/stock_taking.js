@@ -747,42 +747,130 @@ frappe.ui.form.on('Stock Taking', {
         // =====================================
         // 🔺 RECEIPT LOGIC
         // =====================================
+        // for (let key in scanned_item_map) {
+
+        //     let data = scanned_item_map[key];
+
+        //     // skip non serial item
+        //     if (data.serials.length === 0) {
+        //         continue;
+        //     }
+
+        //     let r = await frappe.call({
+        //         method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_system_serials",
+        //         args: {
+        //             item_code: data.item_code,
+        //             warehouse: data.warehouse
+        //         }
+        //     });
+
+        //     let system_serials = (r.message || [])
+        //         .map(s => s.trim());
+
+        //     // delivered/inactive scanned
+        //     let extra = data.serials.filter(
+        //         s => !system_serials.includes(s)
+        //     );
+
+        //     if (extra.length > 0) {
+
+        //         receipt_items.push({
+        //             item_code: data.item_code,
+        //             warehouse: data.warehouse,
+        //             serial_no: extra.join("\n"),
+        //             qty: extra.length
+        //         });
+        //     }
+        // }
+        // =====================================
+        // 🔺 RECEIPT LOGIC
+        // =====================================
         for (let key in scanned_item_map) {
 
             let data = scanned_item_map[key];
 
-            // skip non serial item
-            if (data.serials.length === 0) {
-                continue;
+            // =====================================
+            // ✅ SERIALIZED ITEM RECEIPT
+            // =====================================
+            if (data.serials.length > 0) {
+
+                let r = await frappe.call({
+                    method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_system_serials",
+                    args: {
+                        item_code: data.item_code,
+                        warehouse: data.warehouse
+                    }
+                });
+
+                let system_serials = (r.message || [])
+                    .map(s => s.trim());
+
+                // =====================================
+                // ✅ EXTRA SERIALS
+                // =====================================
+                let extra = data.serials.filter(
+                    s => !system_serials.includes(s)
+                );
+
+                if (extra.length > 0) {
+
+                    receipt_items.push({
+                        item_code: data.item_code,
+                        warehouse: data.warehouse,
+                        serial_no: extra.join("\n"),
+                        qty: extra.length
+                    });
+                }
             }
 
-            let r = await frappe.call({
-                method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_system_serials",
-                args: {
-                    item_code: data.item_code,
-                    warehouse: data.warehouse
-                }
-            });
+            // =====================================
+            // ✅ NON SERIALIZED ITEM RECEIPT
+            // =====================================
+            else {
 
-            let system_serials = (r.message || [])
-                .map(s => s.trim());
-
-            // delivered/inactive scanned
-            let extra = data.serials.filter(
-                s => !system_serials.includes(s)
-            );
-
-            if (extra.length > 0) {
-
-                receipt_items.push({
-                    item_code: data.item_code,
-                    warehouse: data.warehouse,
-                    serial_no: extra.join("\n"),
-                    qty: extra.length
+                let r = await frappe.call({
+                    method: "stock_taking.stock_taking.doctype.stock_taking.stock_taking.get_non_serialized_stock",
+                    args: {
+                        warehouse: data.warehouse
+                    }
                 });
+
+                let warehouse_items = r.message || [];
+
+                let system_qty = 0;
+
+                let stock_row = warehouse_items.find(d =>
+                    d.item_code === data.item_code
+                );
+
+                if (stock_row) {
+                    system_qty = flt(stock_row.actual_qty);
+                }
+
+                let physical_qty =
+                    flt(data.physical_count);
+
+                // =====================================
+                // ✅ EXTRA PHYSICAL QTY
+                // =====================================
+                let extra_qty =
+                    physical_qty - system_qty;
+
+                if (extra_qty > 0) {
+
+                    receipt_items.push({
+
+                        item_code: data.item_code,
+
+                        warehouse: data.warehouse,
+
+                        serial_no: "",
+
+                        qty: extra_qty
+                    });
+                }
             }
         }
-
         // =====================================
         // 🔥 CREATE ISSUE
         // =====================================
