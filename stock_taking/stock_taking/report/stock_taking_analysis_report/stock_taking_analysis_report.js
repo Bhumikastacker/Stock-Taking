@@ -8,15 +8,16 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             fieldtype: "Link",
             options: "Company",
             width: 180,
-
-            // ✅ DEFAULT COMPANY
             default: frappe.defaults.get_user_default("Company"),
 
             on_change: function(report) {
 
-                // ✅ CLEAR DEPENDENT FILTERS
+                // Clear dependent filters
                 report.set_filter_value("warehouse", "");
                 report.set_filter_value("stock_taking", "");
+
+                // Refresh report with new company
+                frappe.query_report.refresh();
             }
         },
 
@@ -27,7 +28,6 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             options: "Warehouse",
             width: 180,
 
-            // ✅ COMPANY WISE WAREHOUSE
             get_query: function() {
 
                 let company =
@@ -56,7 +56,6 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             options: "Stock Taking",
             width: 180,
 
-            // ✅ COMPANY WISE STOCK TAKING
             get_query: function() {
 
                 let company =
@@ -70,25 +69,33 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             }
         },
 
-        {
-            fieldname: "from_date",
-            label: __("From Date"),
-            fieldtype: "Date",
-            width: 120
-        },
 
-        {
-            fieldname: "to_date",
-            label: __("To Date"),
-            fieldtype: "Date",
-            width: 120
-        },
+{
+    fieldname: "from_date",
+    label: __("From Date"),
+    fieldtype: "Date",
+    width: 120
+},
 
-        {
-            fieldname: "show_serial_no",
-            label: __("Segregate Serial No"),
-            fieldtype: "Check",
-            default: 0
-        }
+{
+    fieldname: "to_date",
+    label: __("To Date"),
+    fieldtype: "Date",
+    width: 120
+},
+ {
+    fieldname: "status",
+    label: __("Status"),
+    fieldtype: "Select",
+    options: "\nDraft\nSubmitted\nCancelled",
+    width: 150
+},
+
+{
+    fieldname: "show_serial_no",
+    label: __("Segregate Serial No"),
+    fieldtype: "Check",
+    default: 0
+}
     ]
 };
