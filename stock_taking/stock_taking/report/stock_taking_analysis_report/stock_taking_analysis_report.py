@@ -289,7 +289,120 @@ def get_data(filters):
     if conditions:
         where_conditions = " AND " + " AND ".join(conditions)
 
+    # return frappe.db.sql(f"""
+
+    # SELECT
+
+    #     st.name as stock_taking,
+
+    #     st.company as owner_site,
+
+    #     CASE
+    #         WHEN st.docstatus=0 THEN 'Draft'
+    #         WHEN st.docstatus=1 THEN 'Submitted'
+    #         WHEN st.docstatus=2 THEN 'Cancelled'
+    #     END as status,
+
+    #     sti.item_code,
+
+    # sti.is_delivered_row,
+
+    # GROUP_CONCAT(
+    #     DISTINCT REPLACE(
+    #         sti.serial_no,
+    #         '\n',
+    #         '<br>'
+    #     )
+    #     SEPARATOR '<br>'
+    # ) as serial_no,
+
+    #     i.brand as brand_name,
+
+    #     ip_mrp.price_list_rate as mrp,
+    #     ip_std.price_list_rate as std,
+    #     ip_wsp.price_list_rate as wsp,
+
+    #     i.item_group as division,
+    #     i.custom_silvet as silhouette,
+
+    #     se.posting_date as stock_adj_date,
+
+    #     st.plan_date,
+    #     st.remark as plan_description,
+
+    #     i.custom_count_of_pcs as category1,
+    #     i.custom_top_fabrics as category2,
+    #     i.custom_colour_name as category3,
+    #     i.custom_sup_design_no as category4,
+    #     i.custom_size as category5,
+    #     i.custom_block as category6,
+
+    #     ABS(COALESCE(sti.inventory,0))
+    #         as book_stock,
+
+    #     COALESCE(sti.physical_count,0)
+    #         as physical_stock,
+
+    #     COALESCE(sti.difference,0)
+    #         as difference,
+
+    #     COALESCE(SUM(sed.qty),0)
+    #         as stock_adj_qty,
+
+    #     sti.warehouse as stock_point
+
+    # FROM `tabStock Taking` st
+
+    # INNER JOIN `tabStock taking Items` sti
+    #     ON sti.parent=st.name
+
+    # LEFT JOIN `tabStock Entry` se
+    #     ON se.custom_stock_taking=st.name
+    #     AND se.docstatus=1
+
+    # LEFT JOIN `tabStock Entry Detail` sed
+    #     ON sed.parent=se.name
+    #     AND sed.item_code=sti.item_code
+    #     AND (
+    #         sed.s_warehouse=sti.warehouse
+    #         OR
+    #         sed.t_warehouse=sti.warehouse
+    #     )
+
+    # LEFT JOIN `tabItem` i
+    #     ON i.name=sti.item_code
+
+    # LEFT JOIN `tabItem Price` ip_mrp
+    #     ON ip_mrp.item_code=sti.item_code
+    #     AND ip_mrp.price_list='MRP'
+
+    # LEFT JOIN `tabItem Price` ip_std
+    #     ON ip_std.item_code=sti.item_code
+    #     AND ip_std.price_list='STD'
+
+    # LEFT JOIN `tabItem Price` ip_wsp
+    #     ON ip_wsp.item_code=sti.item_code
+    #     AND ip_wsp.price_list='WSP'
+
+    # WHERE 1=1
+    # {where_conditions}
+
+    # GROUP BY
+    # st.name,
+    # sti.item_code,
+    # sti.warehouse,
+    # sti.is_delivered_row
+
+    # ORDER BY
+    #     st.creation DESC
+
+    # """, values, as_dict=1)
     return frappe.db.sql(f"""
+
+    /* =========================================================
+    ✅ PART 1
+    ALL ITEMS FROM MATERIAL ISSUE ENTRY
+    ========================================================= */
 
     SELECT
 
@@ -298,16 +411,16 @@ def get_data(filters):
         st.company as owner_site,
 
         CASE
-            WHEN st.docstatus=0 THEN 'Draft'
-            WHEN st.docstatus=1 THEN 'Submitted'
-            WHEN st.docstatus=2 THEN 'Cancelled'
+            WHEN st.docstatus = 0 THEN 'Draft'
+            WHEN st.docstatus = 1 THEN 'Submitted'
+            WHEN st.docstatus = 2 THEN 'Cancelled'
         END as status,
 
-        sti.item_code,
+        sed.item_code as item_code,
 
         GROUP_CONCAT(
             DISTINCT REPLACE(
-                sti.serial_no,
+                COALESCE(sti.serial_no, ''),
                 '\n',
                 '<br>'
             )
@@ -316,14 +429,14 @@ def get_data(filters):
 
         i.brand as brand_name,
 
-        ip_mrp.price_list_rate as mrp,
-        ip_std.price_list_rate as std,
-        ip_wsp.price_list_rate as wsp,
+        MAX(ip_mrp.price_list_rate) as mrp,
+        MAX(ip_std.price_list_rate) as std,
+        MAX(ip_wsp.price_list_rate) as wsp,
 
         i.item_group as division,
         i.custom_silvet as silhouette,
 
-        se.posting_date as stock_adj_date,
+        MAX(se.posting_date) as stock_adj_date,
 
         st.plan_date,
         st.remark as plan_description,
@@ -335,62 +448,239 @@ def get_data(filters):
         i.custom_size as category5,
         i.custom_block as category6,
 
-        ABS(COALESCE(sti.inventory,0))
+        -- ✅ BOOK STOCK
+        ABS(COALESCE(bin.actual_qty, 0))
             as book_stock,
 
-        COALESCE(sti.physical_count,0)
+        -- ✅ PHYSICAL STOCK
+        COALESCE(SUM(sti.physical_count), 0)
             as physical_stock,
 
-        COALESCE(sti.difference,0)
-            as difference,
+        -- ✅ DIFFERENCE
+        (
+            ABS(COALESCE(bin.actual_qty, 0))
+            -
+            COALESCE(SUM(sti.physical_count), 0)
+        ) as difference,
 
-        COALESCE(SUM(sed.qty),0)
-            as stock_adj_qty,
+            (
+        COALESCE((
+            SELECT SUM(sed_mr.qty)
 
-        sti.warehouse as stock_point
+            FROM `tabStock Entry` se_mr
+
+            INNER JOIN `tabStock Entry Detail` sed_mr
+                ON sed_mr.parent = se_mr.name
+
+            WHERE se_mr.custom_stock_taking = st.name
+            AND se_mr.stock_entry_type = 'Material Receipt'
+            AND se_mr.docstatus IN (0,1)
+
+            AND sed_mr.item_code = sed.item_code
+
+            AND (
+                sed_mr.t_warehouse = COALESCE(
+                    sti.warehouse,
+                    sed.s_warehouse,
+                    sed.t_warehouse
+                )
+            )
+
+        ), 0)
+
+        -
+
+        COALESCE((
+            SELECT SUM(sed_mi.qty)
+
+            FROM `tabStock Entry` se_mi
+
+            INNER JOIN `tabStock Entry Detail` sed_mi
+                ON sed_mi.parent = se_mi.name
+
+            WHERE se_mi.custom_stock_taking = st.name
+            AND se_mi.stock_entry_type = 'Material Issue'
+            AND se_mi.docstatus IN (0,1)
+
+            AND sed_mi.item_code = sed.item_code
+
+            AND (
+                sed_mi.s_warehouse = COALESCE(
+                    sti.warehouse,
+                    sed.s_warehouse,
+                    sed.t_warehouse
+                )
+            )
+
+        ), 0)
+
+    ) as stock_adj_qty,
+
+        COALESCE(
+            sti.warehouse,
+            sed.s_warehouse,
+            sed.t_warehouse
+        ) as stock_point
 
     FROM `tabStock Taking` st
 
-    INNER JOIN `tabStock taking Items` sti
-        ON sti.parent=st.name
+    INNER JOIN `tabStock Entry` se
+        ON se.custom_stock_taking = st.name
+        AND se.stock_entry_type = 'Material Issue'
+        AND se.docstatus IN (0,1)
 
-    LEFT JOIN `tabStock Entry` se
-        ON se.custom_stock_taking=st.name
-        AND se.docstatus=1
+    INNER JOIN `tabStock Entry Detail` sed
+        ON sed.parent = se.name
 
-    LEFT JOIN `tabStock Entry Detail` sed
-        ON sed.parent=se.name
-        AND sed.item_code=sti.item_code
+    LEFT JOIN `tabStock taking Items` sti
+        ON sti.parent = st.name
+        AND sti.item_code = sed.item_code
         AND (
-            sed.s_warehouse=sti.warehouse
-            OR
-            sed.t_warehouse=sti.warehouse
+            sti.warehouse = sed.s_warehouse
+            OR sti.warehouse = sed.t_warehouse
+        )
+
+    LEFT JOIN `tabBin` bin
+        ON bin.item_code = sed.item_code
+        AND bin.warehouse = COALESCE(
+            sti.warehouse,
+            sed.s_warehouse,
+            sed.t_warehouse
         )
 
     LEFT JOIN `tabItem` i
-        ON i.name=sti.item_code
+        ON i.name = sed.item_code
 
     LEFT JOIN `tabItem Price` ip_mrp
-        ON ip_mrp.item_code=sti.item_code
-        AND ip_mrp.price_list='MRP'
+        ON ip_mrp.item_code = sed.item_code
+        AND ip_mrp.price_list = 'MRP'
 
     LEFT JOIN `tabItem Price` ip_std
-        ON ip_std.item_code=sti.item_code
-        AND ip_std.price_list='STD'
+        ON ip_std.item_code = sed.item_code
+        AND ip_std.price_list = 'STD'
 
     LEFT JOIN `tabItem Price` ip_wsp
-        ON ip_wsp.item_code=sti.item_code
-        AND ip_wsp.price_list='WSP'
+        ON ip_wsp.item_code = sed.item_code
+        AND ip_wsp.price_list = 'WSP'
 
     WHERE 1=1
     {where_conditions}
 
     GROUP BY
         st.name,
-        sti.item_code,
-        sti.warehouse
+        sed.item_code,
+        stock_point
+
+
+    UNION
+
+
+    /* =========================================================
+    ✅ PART 2
+    SCANNED ITEMS WHICH ARE MISSING
+    ========================================================= */
+
+    SELECT
+
+        st.name as stock_taking,
+
+        st.company as owner_site,
+
+        CASE
+            WHEN st.docstatus = 0 THEN 'Draft'
+            WHEN st.docstatus = 1 THEN 'Submitted'
+            WHEN st.docstatus = 2 THEN 'Cancelled'
+        END as status,
+
+        sti.item_code as item_code,
+
+        REPLACE(
+            COALESCE(sti.serial_no, ''),
+            '\n',
+            '<br>'
+        ) as serial_no,
+
+        i.brand as brand_name,
+
+        ip_mrp.price_list_rate as mrp,
+        ip_std.price_list_rate as std,
+        ip_wsp.price_list_rate as wsp,
+
+        i.item_group as division,
+        i.custom_silvet as silhouette,
+
+        NULL as stock_adj_date,
+
+        st.plan_date,
+        st.remark as plan_description,
+
+        i.custom_count_of_pcs as category1,
+        i.custom_top_fabrics as category2,
+        i.custom_colour_name as category3,
+        i.custom_sup_design_no as category4,
+        i.custom_size as category5,
+        i.custom_block as category6,
+
+        ABS(COALESCE(bin.actual_qty, 0))
+            as book_stock,
+
+        COALESCE(sti.physical_count, 0)
+            as physical_stock,
+
+        (
+            ABS(COALESCE(bin.actual_qty, 0))
+            -
+            COALESCE(sti.physical_count, 0)
+        ) as difference,
+
+        0 as stock_adj_qty,
+
+        sti.warehouse as stock_point
+
+    FROM `tabStock Taking` st
+
+    INNER JOIN `tabStock taking Items` sti
+        ON sti.parent = st.name
+
+    LEFT JOIN `tabBin` bin
+        ON bin.item_code = sti.item_code
+        AND bin.warehouse = sti.warehouse
+
+    LEFT JOIN `tabItem` i
+        ON i.name = sti.item_code
+
+    LEFT JOIN `tabItem Price` ip_mrp
+        ON ip_mrp.item_code = sti.item_code
+        AND ip_mrp.price_list = 'MRP'
+
+    LEFT JOIN `tabItem Price` ip_std
+        ON ip_std.item_code = sti.item_code
+        AND ip_std.price_list = 'STD'
+
+    LEFT JOIN `tabItem Price` ip_wsp
+        ON ip_wsp.item_code = sti.item_code
+        AND ip_wsp.price_list = 'WSP'
+
+    WHERE 1=1
+    {where_conditions}
+
+    AND NOT EXISTS (
+
+        SELECT 1
+
+        FROM `tabStock Entry` se2
+
+        INNER JOIN `tabStock Entry Detail` sed2
+            ON sed2.parent = se2.name
+
+        WHERE se2.custom_stock_taking = st.name
+        AND se2.stock_entry_type = 'Material Issue'
+
+        AND sed2.item_code = sti.item_code
+    )
 
     ORDER BY
-        st.creation DESC
+        stock_taking DESC,
+        item_code ASC
 
     """, values, as_dict=1)
