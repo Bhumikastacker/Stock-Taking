@@ -69,33 +69,36 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             }
         },
 
+        {
+            fieldname: "from_date",
+            label: __("From Date"),
+            fieldtype: "Date",
+            width: 120,
+            default: frappe.datetime.get_today()
+        },
 
-{
-    fieldname: "from_date",
-    label: __("From Date"),
-    fieldtype: "Date",
-    width: 120
-},
+        {
+            fieldname: "to_date",
+            label: __("To Date"),
+            fieldtype: "Date",
+            width: 120,
+            default: frappe.datetime.get_today()
+        },
 
-{
-    fieldname: "to_date",
-    label: __("To Date"),
-    fieldtype: "Date",
-    width: 120
-},
- {
-    fieldname: "status",
-    label: __("Status"),
-    fieldtype: "Select",
-    options: "\nDraft\nSubmitted\nCancelled",
-    width: 150
-},
+        {
+            fieldname: "status",
+            label: __("Status"),
+            fieldtype: "Select",
+            options: "\nDraft\nSubmitted\nCancelled",
+            width: 150,
+            // default: "Submitted"
+        },
 
-{
-    fieldname: "show_serial_no",
-    label: __("Segregate Serial No"),
-    fieldtype: "Check",
-    default: 0
-}
+        {
+            fieldname: "show_serial_no",
+            label: __("Segregate Serial No"),
+            fieldtype: "Check",
+            default: 0
+        }
     ]
 };

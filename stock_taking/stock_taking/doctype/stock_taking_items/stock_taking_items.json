@@ -12,7 +12,8 @@
   "inventory",
   "physical_count",
   "difference",
-  "serial_no"
+  "serial_no",
+  "is_delivered_row"
  ],
  "fields": [
   {
@@ -54,13 +55,20 @@
    "fieldtype": "Text",
    "label": "Serial No",
    "no_copy": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_delivered_row",
+   "fieldtype": "Check",
+   "label": "Is Delivered Row",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-05-09 20:27:46.638735",
+ "modified": "2026-05-15 18:17:34.738646",
  "modified_by": "Administrator",
  "module": "Stock Taking",
  "name": "Stock taking Items",

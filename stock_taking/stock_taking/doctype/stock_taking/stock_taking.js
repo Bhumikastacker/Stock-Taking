@@ -1072,22 +1072,31 @@ async function create_stock_entry(frm, purpose, items) {
     // =====================================
     if (purpose === "Material Receipt") {
 
-        for (let d of Object.values(grouped)) {
+    let all_serials = [];
 
-            if (d.serials.length > 0) {
+    Object.values(grouped).forEach(d => {
 
-                await frappe.call({
-
-                    method:
-                        "stock_taking.stock_taking.doctype.stock_taking.stock_taking.make_serial_active",
-
-                    args: {
-                        serials: d.serials
-                    }
-                });
-            }
+        if (d.serials.length > 0) {
+            all_serials.push(...d.serials);
         }
+    });
+
+    // REMOVE DUPLICATES
+    all_serials = [...new Set(all_serials)];
+
+    if (all_serials.length > 0) {
+
+        await frappe.call({
+
+            method:
+                "stock_taking.stock_taking.doctype.stock_taking.stock_taking.make_serial_active",
+
+            args: {
+                serials: all_serials
+            }
+        });
     }
+}
 
     return res.message;
 }
