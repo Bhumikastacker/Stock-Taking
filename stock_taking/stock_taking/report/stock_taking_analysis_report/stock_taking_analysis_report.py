@@ -449,129 +449,72 @@ def get_data(filters):
         i.custom_block as category6,
 
         -- ✅ BOOK STOCK
-        # ABS(COALESCE(bin.actual_qty, 0))
-        #     as book_stock,
-        (
-            SELECT sle.qty_after_transaction
-            FROM `tabStock Ledger Entry` sle
-            WHERE sle.item_code = sed.item_code
-            AND sle.warehouse = COALESCE(
-                sti.warehouse,
-                sed.s_warehouse,
-                sed.t_warehouse
-            )
-            AND sle.is_cancelled = 0
-            AND sle.posting_date <= COALESCE(
-                st.plan_date,
-                DATE(st.creation)
-            )
-            ORDER BY sle.posting_date DESC, sle.posting_time DESC
-            LIMIT 1
-        ) as book_stock,
-                         
+        ABS(COALESCE(bin.actual_qty, 0))
+            as book_stock,
 
         -- ✅ PHYSICAL STOCK
         COALESCE(SUM(sti.physical_count), 0)
             as physical_stock,
 
         -- ✅ DIFFERENCE
-        # (
-        #     ABS(COALESCE(bin.actual_qty, 0))
-        #     -
-        #     COALESCE(SUM(sti.physical_count), 0)
-        # ) as difference,
         (
-    COALESCE((
-        SELECT sle.qty_after_transaction
-        FROM `tabStock Ledger Entry` sle
-        WHERE sle.item_code = sed.item_code
-        AND sle.warehouse = COALESCE(
-            sti.warehouse,
-            sed.s_warehouse,
-            sed.t_warehouse
-        )
-        AND sle.is_cancelled = 0
-        AND sle.posting_date <= COALESCE(
-            st.plan_date,
-            DATE(st.creation)
-        )
-        ORDER BY sle.posting_date DESC, sle.posting_time DESC
-        LIMIT 1
-    ), 0)
-    -
-    COALESCE(SUM(sti.physical_count), 0)
-) as difference,
+            ABS(COALESCE(bin.actual_qty, 0))
+            -
+            COALESCE(SUM(sti.physical_count), 0)
+        ) as difference,
 
-    #         (
-    #     COALESCE((
-    #         SELECT SUM(sed_mr.qty)
+            (
+        COALESCE((
+            SELECT SUM(sed_mr.qty)
 
-    #         FROM `tabStock Entry` se_mr
+            FROM `tabStock Entry` se_mr
 
-    #         INNER JOIN `tabStock Entry Detail` sed_mr
-    #             ON sed_mr.parent = se_mr.name
+            INNER JOIN `tabStock Entry Detail` sed_mr
+                ON sed_mr.parent = se_mr.name
 
-    #         WHERE se_mr.custom_stock_taking = st.name
-    #         AND se_mr.stock_entry_type = 'Material Receipt'
-    #         AND se_mr.docstatus IN (0,1)
+            WHERE se_mr.custom_stock_taking = st.name
+            AND se_mr.stock_entry_type = 'Material Receipt'
+            AND se_mr.docstatus IN (0,1)
 
-    #         AND sed_mr.item_code = sed.item_code
+            AND sed_mr.item_code = sed.item_code
 
-    #         AND (
-    #             sed_mr.t_warehouse = COALESCE(
-    #                 sti.warehouse,
-    #                 sed.s_warehouse,
-    #                 sed.t_warehouse
-    #             )
-    #         )
+            AND (
+                sed_mr.t_warehouse = COALESCE(
+                    sti.warehouse,
+                    sed.s_warehouse,
+                    sed.t_warehouse
+                )
+            )
 
-    #     ), 0)
+        ), 0)
 
-    #     -
+        -
 
-    #     COALESCE((
-    #         SELECT SUM(sed_mi.qty)
+        COALESCE((
+            SELECT SUM(sed_mi.qty)
 
-    #         FROM `tabStock Entry` se_mi
+            FROM `tabStock Entry` se_mi
 
-    #         INNER JOIN `tabStock Entry Detail` sed_mi
-    #             ON sed_mi.parent = se_mi.name
+            INNER JOIN `tabStock Entry Detail` sed_mi
+                ON sed_mi.parent = se_mi.name
 
-    #         WHERE se_mi.custom_stock_taking = st.name
-    #         AND se_mi.stock_entry_type = 'Material Issue'
-    #         AND se_mi.docstatus IN (0,1)
+            WHERE se_mi.custom_stock_taking = st.name
+            AND se_mi.stock_entry_type = 'Material Issue'
+            AND se_mi.docstatus IN (0,1)
 
-    #         AND sed_mi.item_code = sed.item_code
+            AND sed_mi.item_code = sed.item_code
 
-    #         AND (
-    #             sed_mi.s_warehouse = COALESCE(
-    #                 sti.warehouse,
-    #                 sed.s_warehouse,
-    #                 sed.t_warehouse
-    #             )
-    #         )
+            AND (
+                sed_mi.s_warehouse = COALESCE(
+                    sti.warehouse,
+                    sed.s_warehouse,
+                    sed.t_warehouse
+                )
+            )
 
-    #     ), 0)
+        ), 0)
 
-    # ) as stock_adj_qty,
-    
-                         -COALESCE((
-    SELECT sle.qty_after_transaction
-    FROM `tabStock Ledger Entry` sle
-    WHERE sle.item_code = sed.item_code
-    AND sle.warehouse = COALESCE(
-        sti.warehouse,
-        sed.s_warehouse,
-        sed.t_warehouse
-    )
-    AND sle.is_cancelled = 0
-    AND sle.posting_date <= COALESCE(
-        st.plan_date,
-        DATE(st.creation)
-    )
-    ORDER BY sle.posting_date DESC, sle.posting_time DESC
-    LIMIT 1
-), 0) as stock_adj_qty,
+    ) as stock_adj_qty,
 
         COALESCE(
             sti.warehouse,
@@ -597,13 +540,13 @@ def get_data(filters):
             OR sti.warehouse = sed.t_warehouse
         )
 
-    # LEFT JOIN `tabBin` bin
-    #     ON bin.item_code = sed.item_code
-    #     AND bin.warehouse = COALESCE(
-    #         sti.warehouse,
-    #         sed.s_warehouse,
-    #         sed.t_warehouse
-    #     )
+    LEFT JOIN `tabBin` bin
+        ON bin.item_code = sed.item_code
+        AND bin.warehouse = COALESCE(
+            sti.warehouse,
+            sed.s_warehouse,
+            sed.t_warehouse
+        )
 
     LEFT JOIN `tabItem` i
         ON i.name = sed.item_code
@@ -678,63 +621,19 @@ def get_data(filters):
         i.custom_size as category5,
         i.custom_block as category6,
 
-        # ABS(COALESCE(bin.actual_qty, 0))
-        #     as book_stock,
-        (
-            SELECT sle.qty_after_transaction
-            FROM `tabStock Ledger Entry` sle
-            WHERE sle.item_code = sti.item_code
-            AND sle.warehouse = sti.warehouse
-            AND sle.is_cancelled = 0
-            AND sle.posting_date <= COALESCE(
-                st.plan_date,
-                DATE(st.creation)
-            )
-        ORDER BY sle.posting_date DESC, sle.posting_time DESC
-        LIMIT 1
-        ) as book_stock,
-
+        ABS(COALESCE(bin.actual_qty, 0))
+            as book_stock,
 
         COALESCE(sti.physical_count, 0)
             as physical_stock,
 
-        # (
-        #     ABS(COALESCE(bin.actual_qty, 0))
-        #     -
-        #     COALESCE(sti.physical_count, 0)
-        # ) as difference,
         (
-        COALESCE((
-            SELECT sle.qty_after_transaction
-            FROM `tabStock Ledger Entry` sle
-            WHERE sle.item_code = sti.item_code
-            AND sle.warehouse = sti.warehouse
-            AND sle.is_cancelled = 0
-            AND sle.posting_date <= COALESCE(
-                st.plan_date,
-                DATE(st.creation)
-            )
-            ORDER BY sle.posting_date DESC, sle.posting_time DESC
-            LIMIT 1
-            ), 0)
+            ABS(COALESCE(bin.actual_qty, 0))
             -
             COALESCE(sti.physical_count, 0)
         ) as difference,
 
-        #0 as stock_adj_qty,
-        -COALESCE((
-    SELECT sle.qty_after_transaction
-    FROM `tabStock Ledger Entry` sle
-    WHERE sle.item_code = sti.item_code
-    AND sle.warehouse = sti.warehouse
-    AND sle.is_cancelled = 0
-    AND sle.posting_date <= COALESCE(
-        st.plan_date,
-        DATE(st.creation)
-    )
-    ORDER BY sle.posting_date DESC, sle.posting_time DESC
-    LIMIT 1
-), 0) as stock_adj_qty,
+        0 as stock_adj_qty,
 
         sti.warehouse as stock_point
 
@@ -743,9 +642,9 @@ def get_data(filters):
     INNER JOIN `tabStock taking Items` sti
         ON sti.parent = st.name
 
-    # LEFT JOIN `tabBin` bin
-    #     ON bin.item_code = sti.item_code
-    #     AND bin.warehouse = sti.warehouse
+    LEFT JOIN `tabBin` bin
+        ON bin.item_code = sti.item_code
+        AND bin.warehouse = sti.warehouse
 
     LEFT JOIN `tabItem` i
         ON i.name = sti.item_code
