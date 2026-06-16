@@ -85,6 +85,7 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
             default: frappe.datetime.get_today()
         },
 
+
         {
             fieldname: "status",
             label: __("Status"),
