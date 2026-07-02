@@ -296,7 +296,7 @@ frappe.ui.form.on('Stock Taking', {
 
     // Calculate differences before saving (keeps UI responsive)
     before_save(frm) {
-        calculate_differences(frm);
+        // calculate_differences(frm);
         update_child_warehouse(frm);
     },
 
@@ -1137,15 +1137,48 @@ async function create_stock_entry(frm, purpose, items) {
 // }
 
 
+// function calculate_differences(frm) {
+//     let changed = false;
+
+//     (frm.doc.items || []).forEach(row => {
+//         const inventory = flt(row.inventory) || 0;
+//         const physical = flt(row.physical_count) || 0;
+
+//         // const diff = Math.abs(physical - inventory);
+//         const diff = physical - inventory;
+//         if (row.difference !== diff) {
+//             row.difference = diff;
+//             changed = true;
+//         }
+//     });
+
+//     if (changed) {
+//         frm.refresh_field("items");
+//     }
+// }
 function calculate_differences(frm) {
+
     let changed = false;
 
     (frm.doc.items || []).forEach(row => {
+
+        // Agar ye dusre warehouse ka item tha
+        // to difference hamesha 0 hi rahega
+        if (row.is_diff_warehouse_row) {
+
+            if (row.difference !== 0) {
+                row.difference = 0;
+                changed = true;
+            }
+
+            return;
+        }
+
         const inventory = flt(row.inventory) || 0;
         const physical = flt(row.physical_count) || 0;
 
-        // const diff = Math.abs(physical - inventory);
         const diff = physical - inventory;
+
         if (row.difference !== diff) {
             row.difference = diff;
             changed = true;
@@ -1156,18 +1189,42 @@ function calculate_differences(frm) {
         frm.refresh_field("items");
     }
 }
-
 function update_child_warehouse(frm) {
+
     if (!frm.doc.warehouse || !frm.doc.warehouse.length) return;
 
-    const parent_warehouse = frm.doc.warehouse[0].warehuose; // fieldname check kar lena
+    const parent_warehouse = frm.doc.warehouse[0].warehuose;
 
     frm.doc.items.forEach(row => {
-        row.warehouse = parent_warehouse;
+
+        if (row.warehouse && row.warehouse !== parent_warehouse) {
+
+            row.is_diff_warehouse_row = 1;
+            row.warehouse = parent_warehouse;
+        }
+
+        // Same warehouse hone par kuch mat karo.
+        // Agar pehle se 1 hai to 1 hi rahega.
     });
 
     frm.refresh_field("items");
+
+    // Warehouse update hone ke baad
+    calculate_differences(frm);
 }
+// function update_child_warehouse(frm) {
+//     if (!frm.doc.warehouse || !frm.doc.warehouse.length) return;
+
+//     const parent_warehouse = frm.doc.warehouse[0].warehuose; // fieldname check kar lena
+
+//     frm.doc.items.forEach(row => {
+//         row.warehouse = parent_warehouse;
+//     });
+
+//     frm.refresh_field("items");
+// }
+
+
 // Warehouse filter helpers
 function get_warehouse_filter(frm) {
     const company = frm.doc.company;
