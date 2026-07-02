@@ -128,6 +128,33 @@ def get_data(filters):
 
     where_conditions = " AND " + " AND ".join(cond) if cond else ""
 
+    latest_plan_date = None
+    latest_plan_time = None
+
+    if filters.get("company") and filters.get("to_date"):
+
+        latest_stock = frappe.db.sql("""
+            SELECT
+                plan_date,
+                plan_time
+            FROM `tabStock Taking`
+            WHERE company = %(company)s
+            AND plan_date <= %(to_date)s
+            ORDER BY
+                plan_date DESC,
+                plan_time DESC
+            LIMIT 1
+        """, {
+            "company": filters.get("company"),
+            "to_date": filters.get("to_date")
+        }, as_dict=True)
+
+        if latest_stock:
+            latest_plan_date = latest_stock[0].plan_date
+            latest_plan_time = latest_stock[0].plan_time
+
+    values["latest_plan_date"] = latest_plan_date
+    values["latest_plan_time"] = latest_plan_time
     # =========================================================
     # LOGIC
     # ---------------------------------------------------------
@@ -192,6 +219,8 @@ def get_data(filters):
                 FROM `tabStock Entry` se_d
                 WHERE se_d.custom_stock_taking = st.name
                   AND se_d.docstatus IN (0, 1)
+                  AND TIMESTAMP(se_d.posting_date,se_d.posting_time)
+                     <= TIMESTAMP(%(latest_plan_date)s,%(latest_plan_time)s)
             )                                           AS stock_adj_date,
 
             st.plan_date                                AS plan_date,
@@ -227,8 +256,11 @@ def get_data(filters):
                     WHERE se_mr.custom_stock_taking = st.name
                       AND se_mr.stock_entry_type = 'Material Receipt'
                       AND se_mr.docstatus IN (0,1)
+                      AND TIMESTAMP(se_mr.posting_date,se_mr.posting_time)
+                         <= TIMESTAMP(%(latest_plan_date)s,%(latest_plan_time)s)
                       AND sed_mr.item_code = b.item_code
                       AND sed_mr.t_warehouse = b.warehouse
+                      
                 ), 0)
                 -
                 COALESCE((
@@ -238,7 +270,9 @@ def get_data(filters):
                         ON sed_mi.parent = se_mi.name
                     WHERE se_mi.custom_stock_taking = st.name
                       AND se_mi.stock_entry_type = 'Material Issue'
-                      AND se_mi.docstatus IN (0,1)
+                      AND se_mi.docstatus IN (0,1) 
+                      AND TIMESTAMP(se_mi.posting_date,se_mi.posting_time)
+                            <= TIMESTAMP(%(latest_plan_date)s,%(latest_plan_time)s)
                       AND sed_mi.item_code = b.item_code
                       AND sed_mi.s_warehouse = b.warehouse
                 ), 0)
@@ -273,6 +307,7 @@ def get_data(filters):
 
         WHERE 1=1
         {where_conditions}
+        
 
         ORDER BY
             st.name DESC,
