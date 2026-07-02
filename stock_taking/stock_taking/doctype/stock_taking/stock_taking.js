@@ -297,6 +297,7 @@ frappe.ui.form.on('Stock Taking', {
     // Calculate differences before saving (keeps UI responsive)
     before_save(frm) {
         calculate_differences(frm);
+        update_child_warehouse(frm);
     },
 
     // Barcode scan: add rows from Bin for scanned code
@@ -1156,8 +1157,17 @@ function calculate_differences(frm) {
     }
 }
 
+function update_child_warehouse(frm) {
+    if (!frm.doc.warehouse || !frm.doc.warehouse.length) return;
 
+    const parent_warehouse = frm.doc.warehouse[0].warehuose; // fieldname check kar lena
 
+    frm.doc.items.forEach(row => {
+        row.warehouse = parent_warehouse;
+    });
+
+    frm.refresh_field("items");
+}
 // Warehouse filter helpers
 function get_warehouse_filter(frm) {
     const company = frm.doc.company;
