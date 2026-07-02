@@ -13,7 +13,8 @@
   "physical_count",
   "difference",
   "serial_no",
-  "is_delivered_row"
+  "is_delivered_row",
+  "is_diff_warehouse_row"
  ],
  "fields": [
   {
@@ -62,13 +63,20 @@
    "fieldtype": "Check",
    "label": "Is Delivered Row",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_diff_warehouse_row",
+   "fieldtype": "Check",
+   "label": "Is Diff Warehouse Row",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-05-15 18:17:34.738646",
+ "modified": "2026-07-02 21:39:29.940835",
  "modified_by": "Administrator",
  "module": "Stock Taking",
  "name": "Stock taking Items",
