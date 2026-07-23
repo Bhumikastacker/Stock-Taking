@@ -12,11 +12,9 @@ frappe.query_reports["Stock Taking Analysis Report"] = {
 
             on_change: function(report) {
 
-                // Clear dependent filters
                 report.set_filter_value("warehouse", "");
                 report.set_filter_value("stock_taking", "");
 
-                // Refresh report with new company
                 frappe.query_report.refresh();
             }
         },
