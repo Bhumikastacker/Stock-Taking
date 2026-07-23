@@ -78,30 +78,7 @@ def get_columns(filters=None):
         })
 
     columns.extend([
-        {
-            "label": "Book Stock",
-            "fieldname": "book_stock",
-            "fieldtype": "Float",
-            "width": 120
-        },
-        {
-            "label": "Physical Stock",
-            "fieldname": "physical_stock",
-            "fieldtype": "Float",
-            "width": 120
-        },
-        {
-            "label": "Difference",
-            "fieldname": "difference",
-            "fieldtype": "Float",
-            "width": 120
-        },
-        {
-            "label": "Stock Adj Qty",
-            "fieldname": "stock_adj_qty",
-            "fieldtype": "Float",
-            "width": 120
-        },
+
         {
             "label": "Brand Name",
             "fieldname": "brand_name",
@@ -137,6 +114,30 @@ def get_columns(filters=None):
             "fieldname": "division",
             "fieldtype": "Data",
             "width": 150
+        },
+                {
+            "label": "Book Stock",
+            "fieldname": "book_stock",
+            "fieldtype": "Float",
+            "width": 120
+        },
+        {
+            "label": "Physical Stock",
+            "fieldname": "physical_stock",
+            "fieldtype": "Float",
+            "width": 120
+        },
+        {
+            "label": "Difference",
+            "fieldname": "difference",
+            "fieldtype": "Float",
+            "width": 120
+        },
+        {
+            "label": "Stock Adj Qty",
+            "fieldname": "stock_adj_qty",
+            "fieldtype": "Float",
+            "width": 120
         },
         {
             "label": "Stock Adj Date",
