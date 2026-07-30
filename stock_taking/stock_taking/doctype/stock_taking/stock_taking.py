@@ -2,13 +2,34 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 
-
 class StockTaking(Document):
-    pass
 
+    def before_cancel(self):
+        stock_entries = frappe.get_all(
+            "Stock Entry",
+            filters={"custom_stock_taking": self.name},
+            fields=["name", "docstatus"]
+        )
 
+        for se in stock_entries:
+
+            # Submitted Stock Entry → Stop Cancellation
+            if se.docstatus == 1:
+                frappe.throw(
+                    _("Cannot cancel Stock Taking because Stock Entry <b>{0}</b> is Submitted. Please cancel it first.")
+                    .format(se.name)
+                )
+
+            # Draft Stock Entry → Delete
+            elif se.docstatus == 0:
+                doc = frappe.get_doc("Stock Entry", se.name)
+                doc.flags.ignore_permissions = True
+                doc.delete()
+
+        frappe.db.commit()
 # @frappe.whitelist()
 # def scan_barcode(code, warehouses=None):
 #     try:
