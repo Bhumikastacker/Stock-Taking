@@ -103,57 +103,85 @@ frappe.query_reports["Stock Take Analysis Report"] = {
         }
     ],
 
-    after_datatable_render: function(datatable) {
+    // after_datatable_render: function(datatable) {
 
-        const highlightColumns = [
-            "short_qty",
-            "excess_qty",
-            "stock_adj_qty",
-            "difference",
+    //     const highlightColumns = [
+    //         "short_qty",
+    //         "excess_qty",
+    //         "stock_adj_qty",
+    //         "difference",
+    //         "physical_stock",
+    //         "book_stock"
+    //     ];
+
+    //     highlightColumns.forEach(fieldname => {
+
+    //         const colIndex = datatable.datamanager.getColumns()
+    //             .findIndex(col => col.id === fieldname);
+
+    //         if (colIndex === -1) return;
+
+    //         datatable.wrapper
+    //             .querySelectorAll(`.dt-cell--col-${colIndex}`)
+    //             .forEach(cell => {
+
+    //                 let qty = parseFloat(cell.innerText.trim());
+
+    //                 if (isNaN(qty)) return;
+
+    //                 const content = cell.querySelector(".dt-cell__content");
+    //                 if (!content) return;
+
+    //                 content.style.fontWeight = "600";
+
+    //                 if (qty > 0) {
+    //                     content.style.color = "#198754"; // Green
+
+    //                     // + sign only once
+    //                     if (!content.innerText.trim().startsWith("+")) {
+    //                         content.innerText = "+" + qty;
+    //                     }
+
+    //                 } else if (qty < 0) {
+    //                     content.style.color = "#dc3545"; // Red
+    //                 } else {
+    //                     content.style.color = "";
+    //                 }
+
+    //             });
+
+    //     });
+
+    // }
+    formatter: function(value, row, column, data, default_formatter) {
+
+        value = default_formatter(value, row, column, data);
+
+        const cols = [
+            "book_stock",
             "physical_stock",
-            "book_stock"
+            "difference",
+            "excess_qty",
+            "short_qty",
+            "stock_adj_qty"
         ];
 
-        highlightColumns.forEach(fieldname => {
+        if (!data || !cols.includes(column.fieldname)) {
+            return value;
+        }
 
-            const colIndex = datatable.datamanager.getColumns()
-                .findIndex(col => col.id === fieldname);
+        let qty = flt(data[column.fieldname]);
 
-            if (colIndex === -1) return;
+        if (qty > 0) {
+            return `<span style="color:green;font-weight:600;">+${qty}</span>`;
+        }
 
-            datatable.wrapper
-                .querySelectorAll(`.dt-cell--col-${colIndex}`)
-                .forEach(cell => {
+        if (qty < 0) {
+            return `<span style="color:red;font-weight:600;">${qty}</span>`;
+        }
 
-                    let qty = parseFloat(cell.innerText.trim());
-
-                    if (isNaN(qty)) return;
-
-                    const content = cell.querySelector(".dt-cell__content");
-                    if (!content) return;
-
-                    content.style.fontWeight = "600";
-
-                    if (qty > 0) {
-                        content.style.color = "#198754"; // Green
-
-                        // + sign only once
-                        if (!content.innerText.trim().startsWith("+")) {
-                            content.innerText = "+" + qty;
-                        }
-
-                    } else if (qty < 0) {
-                        content.style.color = "#dc3545"; // Red
-                    } else {
-                        content.style.color = "";
-                    }
-
-                });
-
-        });
-
+        return `<span style="font-weight:600;">0</span>`;
     }
-
 
 
 
