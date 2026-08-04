@@ -220,6 +220,9 @@ def get_columns(filters=None):
 
     return columns
 
+
+
+
 def get_data(filters):
 
 		cond = []
@@ -438,30 +441,39 @@ COALESCE((
 
 			FROM `tabStock Taking` st
 
-			-- STEP 1: warehouse(s) jo is Stock Taking pe set hain (via child items)
-			INNER JOIN (
-				SELECT DISTINCT parent, warehouse
-				FROM `tabStock taking Items`
-			) st_wh
-				ON st_wh.parent = st.name
+INNER JOIN (
+    SELECT DISTINCT parent, warehouse
+    FROM `tabStock taking Items`
+) st_wh
+    ON st_wh.parent = st.name
 
-			-- STEP 2: BASE = Bin. Us warehouse ke SAARE items
-			INNER JOIN `tabBin` b
-				ON b.warehouse = st_wh.warehouse
+INNER JOIN (
+    SELECT item_code, warehouse, actual_qty
+    FROM `tabBin`
 
-			-- STEP 3: physical count, sirf jo item actually count hua
-			LEFT JOIN `tabStock taking Items` sti
-				ON sti.parent     = st.name
-				AND sti.item_code = b.item_code
-				AND sti.warehouse = b.warehouse
+    UNION
 
-			LEFT JOIN `tabItem` i
-				ON i.name = b.item_code
+    SELECT
+        sti.item_code,
+        sti.warehouse,
+        0 AS actual_qty
+    FROM `tabStock taking Items` sti
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM `tabBin` b
+        WHERE b.item_code = sti.item_code
+          AND b.warehouse = sti.warehouse
+    )
+) b
+    ON b.warehouse = st_wh.warehouse
 
-			-- NOTE: tabItem Price ke LEFT JOINs hata diye (duplicate
-			-- rows ki wajah se row multiplication hoti thi). Ab MRP/
-			-- STD/WSP correlated subqueries se SELECT mein upar fetch
-			-- ho rahe hain, isliye yahan koi join nahi chahiye.
+LEFT JOIN `tabStock taking Items` sti
+    ON sti.parent = st.name
+    AND sti.item_code = b.item_code
+    AND sti.warehouse = b.warehouse
+
+LEFT JOIN `tabItem` i
+    ON i.name = b.item_code
 
 			WHERE 1=1
 			{where_conditions}
