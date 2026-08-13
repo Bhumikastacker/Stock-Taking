@@ -2,25 +2,92 @@ frappe.query_reports["Stock Take Analysis Report"] = {
 
     filters: [
 
+        // =========================================================
+        // COMPANY
+        // =========================================================
         {
             fieldname: "company",
             label: __("Company"),
             fieldtype: "Link",
             options: "Company",
             width: 180,
-            default: frappe.defaults.get_user_default("Company"),
+            default: "",
 
             on_change: function(report) {
 
-                // Clear dependent filters
-                report.set_filter_value("warehouse", "");
-                report.set_filter_value("stock_taking", "");
+                let company = report.get_filter_value("company");
 
-                // Refresh report with new company
-                frappe.query_report.refresh();
+                // Company blank
+                if (!company) {
+
+                    report.set_filter_value("stock_taking", "");
+                    report.set_filter_value("warehouse", "");
+                    report.set_filter_value("from_date", "");
+                    report.set_filter_value("to_date", "");
+                    report.set_filter_value("time", "");
+
+                    return;
+                }
+
+                // Get latest Stock Taking of selected company
+                frappe.call({
+                    method: "frappe.client.get_list",
+                    args: {
+                        doctype: "Stock Taking",
+
+                        filters: {
+                            company: company
+                        },
+
+                        fields: [
+                            "name",
+                            "plan_date",
+                            "plan_time"
+                        ],
+
+                        order_by: "plan_date desc, plan_time desc",
+
+                        limit_page_length: 1
+                    },
+
+                    callback: function(r) {
+
+                        if (
+                            !r.message ||
+                            !r.message.length
+                        ) {
+
+                            report.set_filter_value("stock_taking", "");
+                            report.set_filter_value("warehouse", "");
+                            report.set_filter_value("from_date", "");
+                            report.set_filter_value("to_date", "");
+                            report.set_filter_value("time", "");
+
+                            return;
+                        }
+
+                        let stock_taking = r.message[0].name;
+
+                        // Set latest Stock Taking
+                        report.set_filter_value(
+                            "stock_taking",
+                            stock_taking
+                        );
+
+                        // Load Stock Taking details
+                        set_stock_taking_filters(
+                            report,
+                            stock_taking
+                        );
+                    }
+                });
             }
         },
 
+
+        // =========================================================
+        // WAREHOUSE
+        // =========================================================
         {
             fieldname: "warehouse",
             label: __("Warehouse"),
@@ -28,10 +95,16 @@ frappe.query_reports["Stock Take Analysis Report"] = {
             options: "Warehouse",
             width: 180,
 
+            read_only: 1,
+
             get_query: function() {
 
                 let company =
                     frappe.query_report.get_filter_value("company");
+
+                if (!company) {
+                    return {};
+                }
 
                 return {
                     filters: {
@@ -41,6 +114,10 @@ frappe.query_reports["Stock Take Analysis Report"] = {
             }
         },
 
+
+        // =========================================================
+        // ITEM CODE
+        // =========================================================
         {
             fieldname: "item_code",
             label: __("Item Code"),
@@ -49,6 +126,10 @@ frappe.query_reports["Stock Take Analysis Report"] = {
             width: 180
         },
 
+
+        // =========================================================
+        // STOCK TAKING
+        // =========================================================
         {
             fieldname: "stock_taking",
             label: __("Stock Taking"),
@@ -61,40 +142,104 @@ frappe.query_reports["Stock Take Analysis Report"] = {
                 let company =
                     frappe.query_report.get_filter_value("company");
 
+                if (!company) {
+                    return {};
+                }
+
                 return {
                     filters: {
                         company: company
                     }
                 };
+            },
+
+            on_change: function(report) {
+
+                let stock_taking =
+                    report.get_filter_value("stock_taking");
+
+                // Stock Taking cleared
+                if (!stock_taking) {
+
+                    report.set_filter_value("warehouse", "");
+                    report.set_filter_value("from_date", "");
+                    report.set_filter_value("to_date", "");
+                    report.set_filter_value("time", "");
+
+                    return;
+                }
+
+                // Load selected Stock Taking
+                set_stock_taking_filters(
+                    report,
+                    stock_taking
+                );
             }
         },
 
+
+        // =========================================================
+        // FROM DATE
+        // =========================================================
         {
             fieldname: "from_date",
             label: __("From Date"),
             fieldtype: "Date",
             width: 120,
-            default: frappe.datetime.get_today()
+
+            read_only: 1,
+
+            default: ""
         },
 
+
+        // =========================================================
+        // TO DATE
+        // =========================================================
         {
             fieldname: "to_date",
             label: __("To Date"),
             fieldtype: "Date",
             width: 120,
-            default: frappe.datetime.get_today()
+
+            read_only: 1,
+
+            default: ""
         },
 
 
+        // =========================================================
+        // TIME
+        // =========================================================
+        {
+            fieldname: "time",
+            label: __("Time"),
+            fieldtype: "Time",
+            width: 120,
+
+            read_only: 1,
+
+            default: ""
+        },
+
+
+        // =========================================================
+        // STATUS
+        // =========================================================
         {
             fieldname: "status",
             label: __("Status"),
             fieldtype: "Select",
             options: "\nDraft\nSubmitted\nCancelled",
             width: 150,
-            // default: "Submitted"
+
+            default: ""
         },
 
+
+        // =========================================================
+        // SERIAL NO
+        // =========================================================
         {
             fieldname: "show_serial_no",
             label: __("Segregate Serial No"),
@@ -103,59 +248,24 @@ frappe.query_reports["Stock Take Analysis Report"] = {
         }
     ],
 
-    // after_datatable_render: function(datatable) {
 
-    //     const highlightColumns = [
-    //         "short_qty",
-    //         "excess_qty",
-    //         "stock_adj_qty",
-    //         "difference",
-    //         "physical_stock",
-    //         "book_stock"
-    //     ];
+    // =========================================================
+    // FORMATTER
+    // =========================================================
+    formatter: function(
+        value,
+        row,
+        column,
+        data,
+        default_formatter
+    ) {
 
-    //     highlightColumns.forEach(fieldname => {
-
-    //         const colIndex = datatable.datamanager.getColumns()
-    //             .findIndex(col => col.id === fieldname);
-
-    //         if (colIndex === -1) return;
-
-    //         datatable.wrapper
-    //             .querySelectorAll(`.dt-cell--col-${colIndex}`)
-    //             .forEach(cell => {
-
-    //                 let qty = parseFloat(cell.innerText.trim());
-
-    //                 if (isNaN(qty)) return;
-
-    //                 const content = cell.querySelector(".dt-cell__content");
-    //                 if (!content) return;
-
-    //                 content.style.fontWeight = "600";
-
-    //                 if (qty > 0) {
-    //                     content.style.color = "#198754"; // Green
-
-    //                     // + sign only once
-    //                     if (!content.innerText.trim().startsWith("+")) {
-    //                         content.innerText = "+" + qty;
-    //                     }
-
-    //                 } else if (qty < 0) {
-    //                     content.style.color = "#dc3545"; // Red
-    //                 } else {
-    //                     content.style.color = "";
-    //                 }
-
-    //             });
-
-    //     });
-
-    // }
-    formatter: function(value, row, column, data, default_formatter) {
-
-        value = default_formatter(value, row, column, data);
+        value = default_formatter(
+            value,
+            row,
+            column,
+            data
+        );
 
         const cols = [
             "book_stock",
@@ -166,26 +276,139 @@ frappe.query_reports["Stock Take Analysis Report"] = {
             "stock_adj_qty"
         ];
 
-        if (!data || !cols.includes(column.fieldname)) {
+        if (
+            !data ||
+            !cols.includes(column.fieldname)
+        ) {
             return value;
         }
 
-        let qty = flt(data[column.fieldname]);
+        let qty = flt(
+            data[column.fieldname]
+        );
 
         if (qty > 0) {
-            return `<span style="color:green;font-weight:600;">+${qty}</span>`;
+
+            return `
+                <span style="color:green;font-weight:600;">
+                    +${qty}
+                </span>
+            `;
         }
 
         if (qty < 0) {
-            return `<span style="color:red;font-weight:600;">${qty}</span>`;
+
+            return `
+                <span style="color:red;font-weight:600;">
+                    ${qty}
+                </span>
+            `;
         }
 
-        return `<span style="font-weight:600;">0</span>`;
+        return `
+            <span style="font-weight:600;">
+                0
+            </span>
+        `;
+    }
+};
+
+
+// =============================================================
+// COMMON FUNCTION
+// =============================================================
+
+function set_stock_taking_filters(
+    report,
+    stock_taking
+) {
+
+    if (!stock_taking) {
+        return;
     }
 
+    frappe.call({
+
+        method: "frappe.client.get",
+
+        args: {
+            doctype: "Stock Taking",
+            name: stock_taking
+        },
+
+        callback: function(r) {
+
+            if (!r.message) {
+                return;
+            }
+
+            let doc = r.message;
 
 
+            // =====================================================
+            // PLAN DATE
+            // =====================================================
+
+            let plan_date =
+                doc.plan_date || "";
 
 
-    
-};
+            // =====================================================
+            // PLAN TIME
+            // =====================================================
+
+            let plan_time =
+                doc.plan_time || "";
+
+
+            // =====================================================
+            // WAREHOUSE
+            // =====================================================
+
+            let warehouse = "";
+
+            if (
+                doc.items &&
+                doc.items.length
+            ) {
+
+                let first_item =
+                    doc.items.find(function(row) {
+
+                        return row.warehouse;
+                    });
+
+                if (first_item) {
+
+                    warehouse =
+                        first_item.warehouse;
+                }
+            }
+
+
+            // =====================================================
+            // SET FILTER VALUES
+            // =====================================================
+
+            report.set_filter_value(
+                "warehouse",
+                warehouse
+            );
+
+            report.set_filter_value(
+                "from_date",
+                plan_date
+            );
+
+            report.set_filter_value(
+                "to_date",
+                plan_date
+            );
+
+            report.set_filter_value(
+                "time",
+                plan_time
+            );
+        }
+    });
+}
