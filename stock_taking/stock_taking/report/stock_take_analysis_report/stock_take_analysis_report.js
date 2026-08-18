@@ -17,7 +17,6 @@ frappe.query_reports["Stock Take Analysis Report"] = {
 
                 let company = report.get_filter_value("company");
 
-                // Company blank
                 if (!company) {
 
                     report.set_filter_value("stock_taking", "");
@@ -29,9 +28,13 @@ frappe.query_reports["Stock Take Analysis Report"] = {
                     return;
                 }
 
-                // Get latest Stock Taking of selected company
+                // =================================================
+                // GET LATEST STOCK TAKING
+                // =================================================
+
                 frappe.call({
                     method: "frappe.client.get_list",
+
                     args: {
                         doctype: "Stock Taking",
 
@@ -57,24 +60,42 @@ frappe.query_reports["Stock Take Analysis Report"] = {
                             !r.message.length
                         ) {
 
-                            report.set_filter_value("stock_taking", "");
-                            report.set_filter_value("warehouse", "");
-                            report.set_filter_value("from_date", "");
-                            report.set_filter_value("to_date", "");
-                            report.set_filter_value("time", "");
+                            report.set_filter_value(
+                                "stock_taking",
+                                ""
+                            );
+
+                            report.set_filter_value(
+                                "warehouse",
+                                ""
+                            );
+
+                            report.set_filter_value(
+                                "from_date",
+                                ""
+                            );
+
+                            report.set_filter_value(
+                                "to_date",
+                                ""
+                            );
+
+                            report.set_filter_value(
+                                "time",
+                                ""
+                            );
 
                             return;
                         }
 
-                        let stock_taking = r.message[0].name;
+                        let stock_taking =
+                            r.message[0].name;
 
-                        // Set latest Stock Taking
                         report.set_filter_value(
                             "stock_taking",
                             stock_taking
                         );
 
-                        // Load Stock Taking details
                         set_stock_taking_filters(
                             report,
                             stock_taking
@@ -100,7 +121,9 @@ frappe.query_reports["Stock Take Analysis Report"] = {
             get_query: function() {
 
                 let company =
-                    frappe.query_report.get_filter_value("company");
+                    frappe.query_report.get_filter_value(
+                        "company"
+                    );
 
                 if (!company) {
                     return {};
@@ -140,7 +163,9 @@ frappe.query_reports["Stock Take Analysis Report"] = {
             get_query: function() {
 
                 let company =
-                    frappe.query_report.get_filter_value("company");
+                    frappe.query_report.get_filter_value(
+                        "company"
+                    );
 
                 if (!company) {
                     return {};
@@ -156,20 +181,35 @@ frappe.query_reports["Stock Take Analysis Report"] = {
             on_change: function(report) {
 
                 let stock_taking =
-                    report.get_filter_value("stock_taking");
+                    report.get_filter_value(
+                        "stock_taking"
+                    );
 
-                // Stock Taking cleared
                 if (!stock_taking) {
 
-                    report.set_filter_value("warehouse", "");
-                    report.set_filter_value("from_date", "");
-                    report.set_filter_value("to_date", "");
-                    report.set_filter_value("time", "");
+                    report.set_filter_value(
+                        "warehouse",
+                        ""
+                    );
+
+                    report.set_filter_value(
+                        "from_date",
+                        ""
+                    );
+
+                    report.set_filter_value(
+                        "to_date",
+                        ""
+                    );
+
+                    report.set_filter_value(
+                        "time",
+                        ""
+                    );
 
                     return;
                 }
 
-                // Load selected Stock Taking
                 set_stock_taking_filters(
                     report,
                     stock_taking
@@ -249,9 +289,9 @@ frappe.query_reports["Stock Take Analysis Report"] = {
     ],
 
 
-    // =========================================================
+    // =============================================================
     // FORMATTER
-    // =========================================================
+    // =============================================================
     formatter: function(
         value,
         row,
@@ -387,7 +427,7 @@ function set_stock_taking_filters(
 
 
             // =====================================================
-            // SET FILTER VALUES
+            // SET WAREHOUSE
             // =====================================================
 
             report.set_filter_value(
@@ -395,15 +435,46 @@ function set_stock_taking_filters(
                 warehouse
             );
 
+
+            // =====================================================
+            // FROM DATE
+            //
+            // Stock Taking Plan Date
+            // =====================================================
+
             report.set_filter_value(
                 "from_date",
                 plan_date
             );
 
+
+            // =====================================================
+            // TO DATE
+            //
+            // IMPORTANT:
+            //
+            // Stock Balance closing date
+            //
+            // Current report requirement:
+            // 18-08-2026
+            //
+            // Automatically use today's date.
+            // =====================================================
+
+            let today =
+                frappe.datetime.get_today();
+
             report.set_filter_value(
                 "to_date",
-                plan_date
+                today
             );
+
+
+            // =====================================================
+            // TIME
+            //
+            // Stock Taking plan time
+            // =====================================================
 
             report.set_filter_value(
                 "time",
