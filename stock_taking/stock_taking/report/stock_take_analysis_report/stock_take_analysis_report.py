@@ -485,15 +485,25 @@ def get_columns(filters=None):
 
 # 		""", values, as_dict=1)
 
-
 def get_data(filters):
 
     cond = []
     values = {}
 
-    # =========================
+    # =========================================================
+    # BOOK STOCK TO DATE
+    # =========================================================
+
+    book_stock_to_date = filters.get("to_date")
+
+    if not book_stock_to_date:
+        book_stock_to_date = frappe.utils.getdate()
+
+    values["book_stock_to_date"] = book_stock_to_date
+
+    # =========================================================
     # FILTERS
-    # =========================
+    # =========================================================
 
     if filters.get("company"):
         cond.append("st.company = %(company)s")
@@ -520,22 +530,33 @@ def get_data(filters):
         values["to_date"] = filters.get("to_date")
 
     if filters.get("status"):
+
         status_map = {
             "Draft": 0,
             "Submitted": 1,
             "Cancelled": 2
         }
 
-        cond.append("st.docstatus = %(docstatus)s")
-        values["docstatus"] = status_map.get(filters.get("status"))
+        cond.append(
+            "st.docstatus = %(docstatus)s"
+        )
 
-    where_conditions = " AND " + " AND ".join(cond) if cond else ""
+        values["docstatus"] = status_map.get(
+            filters.get("status")
+        )
+
+    where_conditions = (
+        " AND " + " AND ".join(cond)
+        if cond
+        else ""
+    )
 
     # =========================================================
     # DATA
     # =========================================================
 
-    return frappe.db.sql(f"""
+    return frappe.db.sql(
+        f"""
 
         SELECT
 
@@ -551,66 +572,110 @@ def get_data(filters):
 
             iw.item_code AS item_code,
 
+
+            -- =================================================
+            -- SERIAL NO
+            -- =================================================
+
             REPLACE(
                 COALESCE(sti.serial_no, ''),
                 '\\n',
                 '<br>'
             ) AS serial_no,
 
+
+            -- =================================================
+            -- ITEM DETAILS
+            -- =================================================
+
             i.brand AS brand_name,
 
-            -- =====================================================
+
+            -- =================================================
             -- MRP
-            -- =====================================================
+            -- =================================================
 
             (
                 SELECT ip.price_list_rate
+
                 FROM `tabItem Price` ip
+
                 WHERE ip.item_code = iw.item_code
                   AND ip.price_list = 'MRP'
-                ORDER BY ip.modified DESC, ip.name DESC
+
+                ORDER BY
+                    ip.modified DESC,
+                    ip.name DESC
+
                 LIMIT 1
+
             ) AS mrp,
 
-            -- =====================================================
+
+            -- =================================================
             -- STD
-            -- =====================================================
+            -- =================================================
 
             (
                 SELECT ip.price_list_rate
+
                 FROM `tabItem Price` ip
+
                 WHERE ip.item_code = iw.item_code
                   AND ip.price_list = 'STD'
-                ORDER BY ip.modified DESC, ip.name DESC
+
+                ORDER BY
+                    ip.modified DESC,
+                    ip.name DESC
+
                 LIMIT 1
+
             ) AS std,
 
-            -- =====================================================
+
+            -- =================================================
             -- WSP
-            -- =====================================================
+            -- =================================================
 
             (
                 SELECT ip.price_list_rate
+
                 FROM `tabItem Price` ip
+
                 WHERE ip.item_code = iw.item_code
                   AND ip.price_list = 'WSP'
-                ORDER BY ip.modified DESC, ip.name DESC
+
+                ORDER BY
+                    ip.modified DESC,
+                    ip.name DESC
+
                 LIMIT 1
+
             ) AS wsp,
+
+
+            -- =================================================
+            -- ITEM CUSTOM FIELDS
+            -- =================================================
 
             i.custom_silvet AS silhouette,
 
             i.item_group AS division,
 
-            -- =====================================================
+
+            -- =================================================
             -- STOCK ADJUSTMENT DATE
-            -- =====================================================
+            -- =================================================
 
             (
                 SELECT MAX(se_d.posting_date)
+
                 FROM `tabStock Entry` se_d
+
                 WHERE se_d.custom_stock_taking = st.name
+
                   AND se_d.docstatus IN (0, 1)
+
                   AND TIMESTAMP(
                         se_d.posting_date,
                         se_d.posting_time
@@ -619,11 +684,22 @@ def get_data(filters):
                         st.plan_date,
                         st.plan_time
                       )
+
             ) AS stock_adj_date,
+
+
+            -- =================================================
+            -- PLAN DETAILS
+            -- =================================================
 
             st.plan_date AS plan_date,
 
             st.remark AS plan_description,
+
+
+            -- =================================================
+            -- CATEGORY FIELDS
+            -- =================================================
 
             i.custom_count_of_pcs AS category1,
 
@@ -637,63 +713,67 @@ def get_data(filters):
 
             i.custom_block AS category6,
 
-            -- =====================================================
-            -- STOCK POINT
-            -- =====================================================
+
+            -- =================================================
+            -- WAREHOUSE
+            -- =================================================
 
             iw.warehouse AS stock_point,
 
-            -- =====================================================
+
+            -- =========================================================
             -- BOOK STOCK
             --
             -- IMPORTANT:
-            -- Do NOT use tabBin.actual_qty here.
             --
-            -- Calculate historical stock from Stock Ledger
-            -- exactly up to Stock Taking Plan Date + Plan Time.
-            -- =====================================================
+            -- tabBin.actual_qty NOT USED
+            --
+            -- Stock Ledger cumulative balance upto To Date.
+            -- =========================================================
 
             COALESCE(
                 (
                     SELECT SUM(sle.actual_qty)
+
                     FROM `tabStock Ledger Entry` sle
+
                     WHERE sle.item_code = iw.item_code
+
                       AND sle.warehouse = iw.warehouse
+
                       AND sle.company = st.company
+
                       AND sle.is_cancelled = 0
-                      AND (
-                            sle.posting_date < st.plan_date
-                            OR (
-                                sle.posting_date = st.plan_date
-                                AND COALESCE(
-                                    sle.posting_time,
-                                    '00:00:00'
-                                ) <= COALESCE(
-                                    st.plan_time,
-                                    '23:59:59'
-                                )
-                            )
-                      )
+
+                      AND sle.posting_date
+                          <= %(book_stock_to_date)s
+
                 ),
                 0
             ) AS book_stock,
 
-            -- =====================================================
+
+            -- =========================================================
             -- PHYSICAL STOCK
             --
-            -- Only scanned/count value from current Stock Taking.
-            -- If item was not scanned => 0
-            -- =====================================================
+            -- Same item + warehouse ki duplicate child rows
+            -- already grouped in sti subquery.
+            -- =========================================================
 
             COALESCE(
                 sti.physical_count,
                 0
             ) AS physical_stock,
 
-            -- =====================================================
+
+            -- =========================================================
             -- DIFFERENCE
+            --
             -- Physical - Book
-            -- =====================================================
+            --
+            -- IMPORTANT:
+            -- tabBin.actual_qty NOT USED
+            -- =========================================================
 
             (
                 COALESCE(
@@ -706,33 +786,32 @@ def get_data(filters):
                 COALESCE(
                     (
                         SELECT SUM(sle.actual_qty)
+
                         FROM `tabStock Ledger Entry` sle
+
                         WHERE sle.item_code = iw.item_code
+
                           AND sle.warehouse = iw.warehouse
+
                           AND sle.company = st.company
+
                           AND sle.is_cancelled = 0
-                          AND (
-                                sle.posting_date < st.plan_date
-                                OR (
-                                    sle.posting_date = st.plan_date
-                                    AND COALESCE(
-                                        sle.posting_time,
-                                        '00:00:00'
-                                    ) <= COALESCE(
-                                        st.plan_time,
-                                        '23:59:59'
-                                    )
-                                )
-                          )
+
+                          AND sle.posting_date
+                              <= %(book_stock_to_date)s
+
                     ),
                     0
                 )
+
             ) AS difference,
 
-            -- =====================================================
+
+            -- =========================================================
             -- EXCESS QTY
+            --
             -- Material Receipt
-            -- =====================================================
+            -- =========================================================
 
             COALESCE(
                 (
@@ -745,24 +824,33 @@ def get_data(filters):
 
                     WHERE se_mr.custom_stock_taking = st.name
 
-                      AND se_mr.stock_entry_type = 'Material Receipt'
+                      AND se_mr.stock_entry_type =
+                          'Material Receipt'
 
                       AND se_mr.docstatus IN (0, 1)
 
-                      AND sed_mr.item_code = iw.item_code
+                      AND sed_mr.item_code =
+                          iw.item_code
 
-                      AND sed_mr.t_warehouse = iw.warehouse
+                      AND sed_mr.t_warehouse =
+                          iw.warehouse
+
                 ),
                 0
             ) AS excess_qty,
 
-            -- =====================================================
+
+            -- =========================================================
             -- SHORT QTY
+            --
             -- Material Issue
-            -- =====================================================
+            -- Negative value
+            -- =========================================================
 
             (
-                -1 * COALESCE(
+                -1 *
+
+                COALESCE(
                     (
                         SELECT SUM(sed_mi.qty)
 
@@ -771,27 +859,35 @@ def get_data(filters):
                         INNER JOIN `tabStock Entry Detail` sed_mi
                             ON sed_mi.parent = se_mi.name
 
-                        WHERE se_mi.custom_stock_taking = st.name
+                        WHERE se_mi.custom_stock_taking =
+                              st.name
 
-                          AND se_mi.stock_entry_type = 'Material Issue'
+                          AND se_mi.stock_entry_type =
+                              'Material Issue'
 
                           AND se_mi.docstatus IN (0, 1)
 
-                          AND sed_mi.item_code = iw.item_code
+                          AND sed_mi.item_code =
+                              iw.item_code
 
-                          AND sed_mi.s_warehouse = iw.warehouse
+                          AND sed_mi.s_warehouse =
+                              iw.warehouse
+
                     ),
                     0
                 )
+
             ) AS short_qty,
 
-            -- =====================================================
+
+            -- =========================================================
             -- STOCK ADJ QTY
             --
             -- Material Receipt - Material Issue
-            -- =====================================================
+            -- =========================================================
 
             (
+
                 COALESCE(
                     (
                         SELECT SUM(sed_mr.qty)
@@ -801,15 +897,20 @@ def get_data(filters):
                         INNER JOIN `tabStock Entry Detail` sed_mr
                             ON sed_mr.parent = se_mr.name
 
-                        WHERE se_mr.custom_stock_taking = st.name
+                        WHERE se_mr.custom_stock_taking =
+                              st.name
 
-                          AND se_mr.stock_entry_type = 'Material Receipt'
+                          AND se_mr.stock_entry_type =
+                              'Material Receipt'
 
                           AND se_mr.docstatus IN (0, 1)
 
-                          AND sed_mr.item_code = iw.item_code
+                          AND sed_mr.item_code =
+                              iw.item_code
 
-                          AND sed_mr.t_warehouse = iw.warehouse
+                          AND sed_mr.t_warehouse =
+                              iw.warehouse
+
                     ),
                     0
                 )
@@ -825,133 +926,228 @@ def get_data(filters):
                         INNER JOIN `tabStock Entry Detail` sed_mi
                             ON sed_mi.parent = se_mi.name
 
-                        WHERE se_mi.custom_stock_taking = st.name
+                        WHERE se_mi.custom_stock_taking =
+                              st.name
 
-                          AND se_mi.stock_entry_type = 'Material Issue'
+                          AND se_mi.stock_entry_type =
+                              'Material Issue'
 
                           AND se_mi.docstatus IN (0, 1)
 
-                          AND sed_mi.item_code = iw.item_code
+                          AND sed_mi.item_code =
+                              iw.item_code
 
-                          AND sed_mi.s_warehouse = iw.warehouse
+                          AND sed_mi.s_warehouse =
+                              iw.warehouse
+
                     ),
                     0
                 )
+
             ) AS stock_adj_qty
 
 
+        -- =========================================================
+        -- STOCK TAKING
+        -- =========================================================
+
         FROM `tabStock Taking` st
+
 
         -- =========================================================
         -- ITEM-WAREHOUSE DATASET
         --
-        -- 1. ALL items currently available in Bin for the
-        --    warehouse(s) used by this Stock Taking
-        --
-        -- 2. PLUS items which were specifically scanned in
-        --    this Stock Taking, even if Bin record is missing
+        -- IMPORTANT:
+        -- DISTINCT wrapper prevents duplicate item/warehouse rows.
         -- =========================================================
 
         INNER JOIN (
 
-    /* =========================================================
-       PART 1:
-       Stock Taking ke warehouse me wahi items lao jinka
-       Stock Taking ke PLAN DATE + PLAN TIME par actual
-       stock balance available tha.
-       ========================================================= */
+            SELECT DISTINCT
 
-    SELECT
+                x.stock_taking,
 
-        st1.name AS stock_taking,
+                x.item_code,
 
-        sle.item_code,
+                x.warehouse
 
-        sle.warehouse
+            FROM (
 
-    FROM `tabStock Taking` st1
+                -- =====================================================
+                -- PART 1
+                --
+                -- Items having stock ledger balance in the
+                -- Stock Taking warehouse.
+                -- =====================================================
 
-    INNER JOIN (
-        SELECT DISTINCT
-            parent,
-            warehouse
-        FROM `tabStock taking Items`
-    ) st_wh1
+                SELECT
 
-        ON st_wh1.parent = st1.name
+                    st1.name AS stock_taking,
 
-    INNER JOIN `tabStock Ledger Entry` sle
+                    sle.item_code,
 
-        ON sle.warehouse = st_wh1.warehouse
+                    sle.warehouse
 
-        AND sle.company = st1.company
-
-        AND sle.is_cancelled = 0
-
-        AND (
-            sle.posting_date < st1.plan_date
-
-            OR (
-
-                sle.posting_date = st1.plan_date
-
-                AND COALESCE(
-                    sle.posting_time,
-                    '00:00:00'
-                ) <= COALESCE(
-                    st1.plan_time,
-                    '23:59:59'
-                )
-
-            )
-        )
-
-    GROUP BY
-
-        st1.name,
-
-        sle.item_code,
-
-        sle.warehouse
-
-    HAVING SUM(sle.actual_qty) != 0
+                FROM `tabStock Taking` st1
 
 
-    UNION
+                INNER JOIN (
+
+                    SELECT DISTINCT
+
+                        parent,
+
+                        warehouse
+
+                    FROM `tabStock taking Items`
+
+                ) st_wh1
+
+                    ON st_wh1.parent =
+                       st1.name
 
 
-    /* =========================================================
-       PART 2:
-       Stock Taking me manually scanned item hamesha include
-       hoga, even if us waqt Book Stock 0 tha.
-       ========================================================= */
+                INNER JOIN `tabStock Ledger Entry` sle
 
-    SELECT DISTINCT
+                    ON sle.warehouse =
+                       st_wh1.warehouse
 
-        sti1.parent AS stock_taking,
+                    AND sle.company =
+                        st1.company
 
-        sti1.item_code,
+                    AND sle.is_cancelled = 0
 
-        sti1.warehouse
+                    AND (
 
-    FROM `tabStock taking Items` sti1
+                        sle.posting_date <
+                        st1.plan_date
 
-) iw
+                        OR (
 
-    ON iw.stock_taking = st.name
+                            sle.posting_date =
+                            st1.plan_date
+
+                            AND COALESCE(
+                                sle.posting_time,
+                                '00:00:00'
+                            )
+                            <= COALESCE(
+                                st1.plan_time,
+                                '23:59:59'
+                            )
+
+                        )
+
+                    )
+
+
+                GROUP BY
+
+                    st1.name,
+
+                    sle.item_code,
+
+                    sle.warehouse
+
+
+                HAVING
+                    SUM(sle.actual_qty) != 0
+
+
+                UNION
+
+
+                -- =====================================================
+                -- PART 2
+                --
+                -- Manually scanned items.
+                -- =====================================================
+
+                SELECT DISTINCT
+
+                    sti1.parent AS stock_taking,
+
+                    sti1.item_code,
+
+                    sti1.warehouse
+
+                FROM `tabStock taking Items` sti1
+
+            ) x
+
+        ) iw
+
+
+            ON iw.stock_taking =
+               st.name
 
 
         -- =========================================================
-        -- CURRENT STOCK TAKING ITEM
+        -- STOCK TAKING ITEMS
+        --
+        -- IMPORTANT:
+        --
+        -- Same item + warehouse multiple rows ko ONE row
+        -- me aggregate kar rahe hain.
         -- =========================================================
 
-        LEFT JOIN `tabStock taking Items` sti
+        LEFT JOIN (
 
-            ON sti.parent = st.name
+            SELECT
 
-            AND sti.item_code = iw.item_code
+                parent,
 
-            AND sti.warehouse = iw.warehouse
+                item_code,
+
+                warehouse,
+
+
+                -- =================================================
+                -- PHYSICAL COUNT
+                -- =================================================
+
+                SUM(
+                    COALESCE(
+                        physical_count,
+                        0
+                    )
+                ) AS physical_count,
+
+
+                -- =================================================
+                -- SERIAL NO
+                -- =================================================
+
+                GROUP_CONCAT(
+                    DISTINCT
+                    NULLIF(serial_no, '')
+
+                    SEPARATOR '\n'
+                ) AS serial_no
+
+
+            FROM `tabStock taking Items`
+
+
+            GROUP BY
+
+                parent,
+
+                item_code,
+
+                warehouse
+
+        ) sti
+
+
+            ON sti.parent =
+               st.name
+
+            AND sti.item_code =
+                iw.item_code
+
+            AND sti.warehouse =
+                iw.warehouse
 
 
         -- =========================================================
@@ -960,13 +1156,22 @@ def get_data(filters):
 
         LEFT JOIN `tabItem` i
 
-            ON i.name = iw.item_code
+            ON i.name =
+               iw.item_code
 
+
+        -- =========================================================
+        -- FILTERS
+        -- =========================================================
 
         WHERE 1 = 1
 
         {where_conditions}
 
+
+        -- =========================================================
+        -- ORDER
+        -- =========================================================
 
         ORDER BY
 
@@ -974,4 +1179,7 @@ def get_data(filters):
 
             iw.item_code ASC
 
-    """, values, as_dict=1)
+        """,
+        values,
+        as_dict=1
+    )
