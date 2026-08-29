@@ -929,6 +929,13 @@ async function create_stock_entry(frm, purpose, items) {
 
         custom_stock_taking: frm.doc.name,
 
+         custom_stock_entry_status:
+            purpose === "Material Issue"
+                ? "Material Adjustment Issue"
+                : purpose === "Material Receipt"
+                    ? "Material Adjustment Receipt"
+                    : "",
+
         custom_to_company: "",
 
         posting_date: frappe.datetime.now_date(),
