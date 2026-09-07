@@ -861,7 +861,7 @@ Docstatus     : {dn.docstatus}
         ignore_permissions=True
     )
 
-    frappe.db.commit()
+    # frappe.db.commit()
 
     # =========================================================
     # RETURN
@@ -1361,8 +1361,19 @@ def get_item_input_gst(
     )
     
 from frappe.utils import flt
+# =============================================================
+# GET ITEM DELIVERY RATE / MRP
+#
+# PRIORITY:
+# 1. Purchase Receipt -> base_price_list_rate
+# 2. Opening Stock Stock Reconciliation -> valuation_rate
+# =============================================================
 
 def get_item_delivery_rate(item_code, company):
+
+    # =========================================================
+    # 1. PURCHASE RECEIPT MRP
+    # =========================================================
 
     result = frappe.db.sql(
         """
@@ -1386,8 +1397,53 @@ def get_item_delivery_rate(item_code, company):
         as_dict=True
     )
 
-    return result[0] if result else None
+    if result:
+        return result[0]
 
+    # =========================================================
+    # 2. OPENING STOCK STOCK RECONCILIATION
+    #
+    # Stock Reconciliation:
+    #     purpose = Opening Stock
+    #     company = Stock Taking Company
+    #
+    # Stock Reconciliation Item:
+    #     item_code = Stock Taking Item
+    #     valuation_rate = MRP
+    # =========================================================
+
+    result = frappe.db.sql(
+        """
+        SELECT
+            sri.valuation_rate AS mrp
+        FROM `tabStock Reconciliation Item` sri
+        INNER JOIN `tabStock Reconciliation` sr
+            ON sr.name = sri.parent
+        WHERE
+            sri.item_code = %s
+            AND sr.company = %s
+            AND sr.purpose = 'Opening Stock'
+            AND sr.docstatus = 1
+            AND IFNULL(sri.valuation_rate, 0) > 0
+        ORDER BY
+            sr.posting_date DESC,
+            sr.posting_time DESC,
+            sr.creation DESC,
+            sri.idx DESC
+        LIMIT 1
+        """,
+        (item_code, company),
+        as_dict=True
+    )
+
+    if result:
+        return result[0]
+
+    # =========================================================
+    # MRP NOT FOUND
+    # =========================================================
+
+    return None
 
 @frappe.whitelist()
 def create_delivery_note_return(doc):
@@ -1917,7 +1973,7 @@ Docstatus     : {dn.docstatus}
         ignore_permissions=True
     )
 
-    frappe.db.commit()
+    # frappe.db.commit()
 
     # =========================================================
     # RETURN
