@@ -1,189 +1,104 @@
+
 # Copyright (c) 2025, bhumika.d@stackerbee.com and contributors
 # For license information, please see license.txt
 
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import flt
+from decimal import Decimal, ROUND_HALF_UP
+
 
 class StockTaking(Document):
 
+    # =========================================================
+    # CANCEL
+    # =========================================================
+
     def before_cancel(self):
-        # =========================================================
+
+        # -----------------------------------------------------
         # STOCK ENTRIES
-        # =========================================================
+        # -----------------------------------------------------
+
         stock_entries = frappe.get_all(
             "Stock Entry",
-            filters={"custom_stock_taking": self.name},
-            fields=["name", "docstatus"]
+            filters={
+                "custom_stock_taking": self.name
+            },
+            fields=[
+                "name",
+                "docstatus"
+            ]
         )
 
         for se in stock_entries:
 
-            # Submitted Stock Entry → Stop Cancellation
             if se.docstatus == 1:
+
                 frappe.throw(
-                    _("Cannot cancel Stock Taking because Stock Entry <b>{0}</b> is Submitted. Please cancel it first.")
-                    .format(se.name)
+                    _(
+                        "Cannot cancel Stock Taking because "
+                        "Stock Entry <b>{0}</b> is Submitted. "
+                        "Please cancel it first."
+                    ).format(se.name)
                 )
 
-            # Draft Stock Entry → Delete
             elif se.docstatus == 0:
-                doc = frappe.get_doc("Stock Entry", se.name)
+
+                doc = frappe.get_doc(
+                    "Stock Entry",
+                    se.name
+                )
+
                 doc.flags.ignore_permissions = True
-                doc.delete()
+                doc.delete(
+                    ignore_permissions=True
+                )
 
-
-        # =========================================================
+        # -----------------------------------------------------
         # DELIVERY NOTES
-        # =========================================================
+        # -----------------------------------------------------
+
         delivery_notes = frappe.get_all(
             "Delivery Note",
-            filters={"custom_stock_taking": self.name},
-            fields=["name", "docstatus"]
+            filters={
+                "custom_stock_taking": self.name
+            },
+            fields=[
+                "name",
+                "docstatus"
+            ]
         )
 
         for dn in delivery_notes:
 
-            # Submitted Delivery Note → Stop Cancellation
             if dn.docstatus == 1:
+
                 frappe.throw(
-                    _("Cannot cancel Stock Taking because Delivery Note <b>{0}</b> is Submitted. Please cancel it first.")
-                    .format(dn.name)
+                    _(
+                        "Cannot cancel Stock Taking because "
+                        "Delivery Note <b>{0}</b> is Submitted. "
+                        "Please cancel it first."
+                    ).format(dn.name)
                 )
 
-            # Draft Delivery Note → Delete
             elif dn.docstatus == 0:
-                doc = frappe.get_doc("Delivery Note", dn.name)
+
+                doc = frappe.get_doc(
+                    "Delivery Note",
+                    dn.name
+                )
+
                 doc.flags.ignore_permissions = True
-                doc.delete()
+                doc.delete(
+                    ignore_permissions=True
+                )
 
 
-        frappe.db.commit()
-# @frappe.whitelist()
-# def scan_barcode(code, warehouses=None):
-#     try:
-#         if frappe.db.exists("Serial No", code):
-#             serial = frappe.get_doc("Serial No", code)
-#             return {
-#                 "success": True,
-#                 "type": "serial",
-#                 "result": {
-#                     "name": serial.name,
-#                     "item_code": serial.item_code,
-#                     "warehouse": serial.warehouse,
-#                     "status": serial.status
-#                 }
-#             }
-
-#         if isinstance(warehouses, str):
-#             warehouses = frappe.parse_json(warehouses)
-
-#         bins = frappe.get_all(
-#             "Bin",
-#             fields=["item_code", "warehouse", "actual_qty"],
-#             filters={
-#                 "item_code": code,
-#                 "warehouse": ["in", warehouses or []]
-#             },
-#             limit_page_length=50
-#         )
-
-#         if bins:
-#             return {
-#                 "success": True,
-#                 "type": "item",
-#                 "result": bins
-#             }
-
-#         return {
-#             "success": False,
-#             "message": "No Serial or Item found"
-#         }
-
-#     except Exception:
-#         frappe.log_error(frappe.get_traceback(), "scan_barcode error")
-#         return {
-#             "success": False,
-#             "message": "Scan failed"
-#         }
-
-
-# @frappe.whitelist()
-# def scan_barcode(code, warehouses=None):
-#     try:
-#         if isinstance(warehouses, str):
-#             warehouses = frappe.parse_json(warehouses)
-
-#         # ===============================
-#         # 🔹 SERIAL SCAN
-#         # ===============================
-#         if frappe.db.exists("Serial No", code):
-#             serial = frappe.get_doc("Serial No", code)
-
-#             return {
-#                 "success": True,
-#                 "type": "serial",
-#                 "result": {
-#                     "name": serial.name,
-#                     "item_code": serial.item_code,
-#                     "warehouse": serial.warehouse,
-#                     "status": serial.status
-#                 }
-#             }
-
-#         # ===============================
-#         # 🔹 ITEM SCAN → BIN DATA
-#         # ===============================
-#         bin_filters = {
-#             "item_code": code
-#         }
-
-#         if warehouses:
-#             bin_filters["warehouse"] = ["in", warehouses]
-
-#         bins = frappe.get_all(
-#             "Bin",
-#             fields=["item_code", "warehouse", "actual_qty"],
-#             filters=bin_filters
-#         )
-
-#         if bins:
-
-#             # ===============================
-#             # 🔥 GET ACTIVE SERIALS (FIXED)
-#             # ===============================
-#             serial_filters = {
-#                 "item_code": code,
-#                 "status": "Active"
-#             }
-
-#             if warehouses:
-#                 serial_filters["warehouse"] = ["in", warehouses]
-
-#             serials = frappe.get_all(
-#                 "Serial No",
-#                 fields=["name"],
-#                 filters=serial_filters
-#             )
-
-#             return {
-#                 "success": True,
-#                 "type": "item",
-#                 "result": bins,
-#                 "serials": [s.name for s in serials]
-#             }
-
-#         return {
-#             "success": False,
-#             "message": "No Serial or Item found"
-#         }
-
-#     except Exception:
-#         frappe.log_error(frappe.get_traceback(), "scan_barcode error")
-#         return {
-#             "success": False,
-#             "message": "Scan failed"
-#         }
+# =============================================================
+# SCAN BARCODE
+# =============================================================
 
 @frappe.whitelist()
 def scan_barcode(code, warehouses=None):
@@ -195,12 +110,19 @@ def scan_barcode(code, warehouses=None):
 
         warehouses = warehouses or []
 
-        # =====================================
-        # 🔹 SERIAL SCAN
-        # =====================================
-        if frappe.db.exists("Serial No", code):
+        # -----------------------------------------------------
+        # SERIAL SCAN
+        # -----------------------------------------------------
 
-            serial = frappe.get_doc("Serial No", code)
+        if frappe.db.exists(
+            "Serial No",
+            code
+        ):
+
+            serial = frappe.get_doc(
+                "Serial No",
+                code
+            )
 
             return {
                 "success": True,
@@ -213,26 +135,34 @@ def scan_barcode(code, warehouses=None):
                 }
             }
 
-        # =====================================
-        # 🔹 ITEM BARCODE
-        # =====================================
+        # -----------------------------------------------------
+        # ITEM BARCODE
+        # -----------------------------------------------------
+
         item_code = frappe.db.get_value(
             "Item Barcode",
-            {"barcode": code},
+            {
+                "barcode": code
+            },
             "parent"
         )
 
-        # =====================================
-        # 🔹 DIRECT ITEM CODE
-        # =====================================
+        # -----------------------------------------------------
+        # DIRECT ITEM CODE
+        # -----------------------------------------------------
+
         if not item_code:
 
-            if frappe.db.exists("Item", code):
+            if frappe.db.exists(
+                "Item",
+                code
+            ):
                 item_code = code
 
-        # =====================================
-        # ❌ ITEM NOT FOUND
-        # =====================================
+        # -----------------------------------------------------
+        # ITEM NOT FOUND
+        # -----------------------------------------------------
+
         if not item_code:
 
             return {
@@ -240,14 +170,16 @@ def scan_barcode(code, warehouses=None):
                 "message": "No Serial or Item found"
             }
 
-        # =====================================
-        # 🔹 SELECTED WAREHOUSE
-        # =====================================
-        warehouse = warehouses[0] if warehouses else ""
+        warehouse = (
+            warehouses[0]
+            if warehouses
+            else ""
+        )
 
-        # =====================================
-        # 🔹 GET BIN QTY
-        # =====================================
+        # -----------------------------------------------------
+        # BIN QTY
+        # -----------------------------------------------------
+
         actual_qty = frappe.db.get_value(
             "Bin",
             {
@@ -257,9 +189,10 @@ def scan_barcode(code, warehouses=None):
             "actual_qty"
         ) or 0
 
-        # =====================================
-        # 🔥 GET ACTIVE SERIALS
-        # =====================================
+        # -----------------------------------------------------
+        # ACTIVE SERIALS
+        # -----------------------------------------------------
+
         serial_filters = {
             "item_code": item_code,
             "status": "Active"
@@ -271,13 +204,10 @@ def scan_barcode(code, warehouses=None):
         serials = frappe.get_all(
             "Serial No",
             fields=["name"],
-            filters=serial_filters
+            filters=serial_filters,
+            limit_page_length=0
         )
 
-        # =====================================
-        # ✅ ALWAYS RETURN ITEM
-        # EVEN IF STOCK = 0
-        # =====================================
         return {
             "success": True,
             "type": "item",
@@ -288,7 +218,10 @@ def scan_barcode(code, warehouses=None):
                     "actual_qty": actual_qty
                 }
             ],
-            "serials": [s.name for s in serials]
+            "serials": [
+                s.name
+                for s in serials
+            ]
         }
 
     except Exception:
@@ -303,8 +236,17 @@ def scan_barcode(code, warehouses=None):
             "message": "Scan failed"
         }
 
+
+# =============================================================
+# GET SYSTEM SERIALS
+# =============================================================
+
 @frappe.whitelist()
-def get_system_serials(item_code, warehouse):
+def get_system_serials(
+    item_code,
+    warehouse
+):
+
     return frappe.get_all(
         "Serial No",
         pluck="name",
@@ -312,100 +254,641 @@ def get_system_serials(item_code, warehouse):
             "item_code": item_code,
             "warehouse": warehouse,
             "status": "Active"
-        }
+        },
+        limit_page_length=0
     )
 
 
+# =============================================================
+# MAKE SERIAL ACTIVE
+# =============================================================
+
 @frappe.whitelist()
 def make_serial_active(serials):
-    for s in serials:
-        frappe.db.set_value("Serial No", s, {
-            "status": "Active"
-        })
+
+    if isinstance(serials, str):
+        serials = frappe.parse_json(serials)
+
+    for serial_no in serials or []:
+
+        frappe.db.set_value(
+            "Serial No",
+            serial_no,
+            "status",
+            "Active"
+        )
+
+
+# =============================================================
+# GET WAREHOUSE SERIALS
+# =============================================================
 
 @frappe.whitelist()
 def get_warehouse_serials(warehouse):
 
-    return frappe.db.sql("""
+    return frappe.db.sql(
+        """
         SELECT
-            name as serial_no,
+            name AS serial_no,
             item_code
         FROM `tabSerial No`
-        WHERE warehouse = %s
-        AND status = 'Active'
-    """, warehouse, as_dict=1)
+        WHERE
+            warehouse = %s
+            AND status = 'Active'
+        """,
+        warehouse,
+        as_dict=True
+    )
 
+
+# =============================================================
+# GET NON SERIALIZED STOCK
+# =============================================================
 
 @frappe.whitelist()
 def get_non_serialized_stock(warehouse):
 
-    data = frappe.db.sql("""
-
+    return frappe.db.sql(
+        """
         SELECT
-
             b.item_code,
             b.actual_qty
-
         FROM `tabBin` b
-
         INNER JOIN `tabItem` i
             ON i.name = b.item_code
-
         WHERE
             b.warehouse = %s
             AND b.actual_qty > 0
             AND IFNULL(i.has_serial_no, 0) = 0
-
-    """, (warehouse,), as_dict=1)
-
-    return data
-
-
-
-# @frappe.whitelist()
-# def create_stock_entry(doc):
-
-#     import json
-
-#     if isinstance(doc, str):
-#         doc = json.loads(doc)
-
-#     se = frappe.get_doc(doc)
-
-#     se.insert(ignore_permissions=True)
-
-#     frappe.db.commit()
-
-#     return se
+        """,
+        warehouse,
+        as_dict=True
+    )
 
 
+# =============================================================
+# OPTIMIZED STOCK TAKING ANALYSIS
+#
+# IMPORTANT:
+# One API call per warehouse.
+#
+# Previously:
+#   get_warehouse_serials
+#   get_non_serialized_stock
+#   get_system_serials
+#   get_non_serialized_stock
+#   get_system_serials
+#   ...
+#
+# Now:
+#   One call per warehouse
+# =============================================================
 
-import frappe
-from frappe.model.document import Document
-from frappe.utils import flt
+@frappe.whitelist()
+def analyze_stock_taking(
+    warehouse,
+    scanned_serials=None,
+    scanned_items=None
+):
+
+    try:
+
+        if isinstance(
+            scanned_serials,
+            str
+        ):
+            scanned_serials = frappe.parse_json(
+                scanned_serials
+            )
+
+        if isinstance(
+            scanned_items,
+            str
+        ):
+            scanned_items = frappe.parse_json(
+                scanned_items
+            )
+
+        scanned_serials = scanned_serials or []
+        scanned_items = scanned_items or {}
+
+        # -----------------------------------------------------
+        # NORMALIZE SERIALS
+        # -----------------------------------------------------
+
+        scanned_serials = {
+            str(s).strip()
+            for s in scanned_serials
+            if str(s).strip()
+        }
+
+        # -----------------------------------------------------
+        # SYSTEM SERIALS
+        # -----------------------------------------------------
+
+        system_serial_rows = frappe.get_all(
+            "Serial No",
+            fields=[
+                "name",
+                "item_code"
+            ],
+            filters={
+                "warehouse": warehouse,
+                "status": "Active"
+            },
+            limit_page_length=0
+        )
+
+        system_serial_map = {}
+
+        for row in system_serial_rows:
+
+            system_serial_map[
+                row.item_code
+            ] = system_serial_map.get(
+                row.item_code,
+                set()
+            )
+
+            system_serial_map[
+                row.item_code
+            ].add(row.name)
+
+        # -----------------------------------------------------
+        # MISSING SERIALS
+        # -----------------------------------------------------
+
+        issue_items = []
+
+        for row in system_serial_rows:
+
+            serial_no = row.name
+
+            if serial_no not in scanned_serials:
+
+                issue_items.append({
+                    "item_code": row.item_code,
+                    "warehouse": warehouse,
+                    "serial_no": serial_no,
+                    "qty": 1
+                })
+
+        # -----------------------------------------------------
+        # NON SERIALIZED STOCK
+        # -----------------------------------------------------
+
+        stock_rows = frappe.db.sql(
+            """
+            SELECT
+                b.item_code,
+                b.actual_qty
+            FROM `tabBin` b
+            INNER JOIN `tabItem` i
+                ON i.name = b.item_code
+            WHERE
+                b.warehouse = %s
+                AND b.actual_qty > 0
+                AND IFNULL(i.has_serial_no, 0) = 0
+            """,
+            warehouse,
+            as_dict=True
+        )
+
+        stock_map = {
+            row.item_code: flt(
+                row.actual_qty
+            )
+            for row in stock_rows
+        }
+
+        # -----------------------------------------------------
+        # MISSING NON SERIALIZED
+        # -----------------------------------------------------
+
+        for row in stock_rows:
+
+            item_code = row.item_code
+
+            scanned_qty = flt(
+                scanned_items.get(
+                    item_code,
+                    0
+                )
+            )
+
+            system_qty = flt(
+                row.actual_qty
+            )
+
+            difference = (
+                system_qty
+                - scanned_qty
+            )
+
+            if difference > 0:
+
+                issue_items.append({
+                    "item_code": item_code,
+                    "warehouse": warehouse,
+                    "serial_no": "",
+                    "qty": difference
+                })
+
+        # -----------------------------------------------------
+        # EXTRA STOCK
+        # -----------------------------------------------------
+
+        receipt_items = []
+
+        for item_code, data in (
+            scanned_items.items()
+        ):
+
+            physical_qty = flt(
+                data.get("physical_count", 0)
+            )
+
+            item_serials = data.get(
+                "serials",
+                []
+            )
+
+            # -------------------------------------------------
+            # SERIALIZED
+            # -------------------------------------------------
+
+            if item_serials:
+
+                system_serials = (
+                    system_serial_map.get(
+                        item_code,
+                        set()
+                    )
+                )
+
+                extra_serials = [
+                    s
+                    for s in item_serials
+                    if s not in system_serials
+                ]
+
+                if extra_serials:
+
+                    receipt_items.append({
+                        "item_code": item_code,
+                        "warehouse": warehouse,
+                        "serial_no": "\n".join(
+                            sorted(
+                                set(
+                                    extra_serials
+                                )
+                            )
+                        ),
+                        "qty": len(
+                            set(extra_serials)
+                        )
+                    })
+
+            # -------------------------------------------------
+            # NON SERIALIZED
+            # -------------------------------------------------
+
+            else:
+
+                system_qty = stock_map.get(
+                    item_code,
+                    0
+                )
+
+                extra_qty = (
+                    physical_qty
+                    - system_qty
+                )
+
+                if extra_qty > 0:
+
+                    receipt_items.append({
+                        "item_code": item_code,
+                        "warehouse": warehouse,
+                        "serial_no": "",
+                        "qty": extra_qty
+                    })
+
+        return {
+            "success": True,
+            "issue_items": issue_items,
+            "receipt_items": receipt_items
+        }
+
+    except Exception:
+
+        frappe.log_error(
+            frappe.get_traceback(),
+            "analyze_stock_taking error"
+        )
+
+        frappe.throw(
+            _(
+                "Stock Taking analysis failed: {0}"
+            ).format(
+                frappe.get_traceback()
+            )
+        )
+
+
+# =============================================================
+# ITEM DELIVERY RATE MAP
+#
+# ONE QUERY FOR ALL ITEMS
+# =============================================================
+
+def get_item_delivery_rate_map(
+    item_codes,
+    company
+):
+
+    item_codes = list(
+        {
+            item
+            for item in item_codes
+            if item
+        }
+    )
+
+    if not item_codes:
+        return {}
+
+    placeholders = ", ".join(
+        ["%s"] * len(item_codes)
+    )
+
+    values = [
+        company
+    ] + item_codes
+
+    result = frappe.db.sql(
+        f"""
+        SELECT
+            pri.item_code,
+            pri.base_price_list_rate AS mrp
+        FROM `tabPurchase Receipt Item` pri
+        INNER JOIN `tabPurchase Receipt` pr
+            ON pr.name = pri.parent
+        WHERE
+            pr.company = %s
+            AND pr.docstatus = 1
+            AND pri.item_code IN ({placeholders})
+            AND IFNULL(
+                pri.base_price_list_rate,
+                0
+            ) > 0
+        ORDER BY
+            pr.posting_date DESC,
+            pr.posting_time DESC,
+            pr.creation DESC
+        """,
+        values,
+        as_dict=True
+    )
+
+    rate_map = {}
+
+    for row in result:
+
+        if row.item_code not in rate_map:
+
+            rate_map[
+                row.item_code
+            ] = row.mrp
+
+    # ---------------------------------------------------------
+    # OPENING STOCK FALLBACK
+    # ---------------------------------------------------------
+
+    missing_items = [
+        item
+        for item in item_codes
+        if item not in rate_map
+    ]
+
+    if missing_items:
+
+        placeholders = ", ".join(
+            ["%s"] * len(missing_items)
+        )
+
+        values = [
+            company
+        ] + missing_items
+
+        result = frappe.db.sql(
+            f"""
+            SELECT
+                sri.item_code,
+                sri.valuation_rate AS mrp
+            FROM `tabStock Reconciliation Item` sri
+            INNER JOIN `tabStock Reconciliation` sr
+                ON sr.name = sri.parent
+            WHERE
+                sr.company = %s
+                AND sr.purpose = 'Opening Stock'
+                AND sr.docstatus = 1
+                AND sri.item_code IN ({placeholders})
+                AND IFNULL(
+                    sri.valuation_rate,
+                    0
+                ) > 0
+            ORDER BY
+                sr.posting_date DESC,
+                sr.posting_time DESC,
+                sr.creation DESC
+            """,
+            values,
+            as_dict=True
+        )
+
+        for row in result:
+
+            if row.item_code not in rate_map:
+
+                rate_map[
+                    row.item_code
+                ] = row.mrp
+
+    return rate_map
+
 
 # =============================================================
 # CREATE DELIVERY NOTE
 #
 # MATERIAL ISSUE REPLACEMENT
 # =============================================================
+
 @frappe.whitelist()
 def create_delivery_note(doc):
-
     import json
     from decimal import Decimal, ROUND_HALF_UP
 
     # =========================================================
-    # PARSE DOC
+    # PARSE DOCUMENT
     # =========================================================
 
     if isinstance(doc, str):
         doc = json.loads(doc)
 
     if not doc:
+        frappe.throw(_("Delivery Note data is required."))
+
+    # =========================================================
+    # STOCK TAKING
+    # =========================================================
+
+    stock_taking_name = (
+        doc.get("custom_stock_taking")
+        or doc.get("stock_taking")
+    )
+
+    if not stock_taking_name:
+        frappe.throw(_("Stock Taking reference is required."))
+
+    # Only required fields instead of loading complete document
+    stock_taking = frappe.db.get_value(
+        "Stock Taking",
+        stock_taking_name,
+        ["company"],
+        as_dict=True
+    )
+
+    if not stock_taking:
         frappe.throw(
-            "Delivery Note data is required."
+            _("Stock Taking {0} not found.").format(
+                stock_taking_name
+            )
         )
+
+    company = stock_taking.company
+
+    if not company:
+        frappe.throw(
+            _("Company is required in Stock Taking.")
+        )
+
+    # =========================================================
+    # CUSTOMER
+    # =========================================================
+
+    customer = frappe.db.get_value(
+        "Stock Taking Customer",
+        {
+            "parent": "Stock Taking Settings",
+            "parenttype": "Stock Taking Settings",
+            "parentfield": "stock_taking_customer",
+            "company": company
+        },
+        "customer"
+    )
+
+    if not customer:
+        frappe.throw(
+            _(
+                "Please add Company <b>{0}</b> "
+                "and its Customer in Stock Taking Settings."
+            ).format(company)
+        )
+
+    # =========================================================
+    # DEFAULT WAREHOUSE
+    # =========================================================
+
+    default_warehouse = frappe.db.get_value(
+        "stock taking Warehouse",
+        {
+            "parent": stock_taking_name,
+            "parenttype": "Stock Taking",
+            "parentfield": "warehouse"
+        },
+        "warehuose",
+        order_by="idx asc"
+    )
+
+    if not default_warehouse:
+        frappe.throw(
+            _(
+                "No Warehouse found in Stock Taking {0}."
+            ).format(stock_taking_name)
+        )
+
+    # =========================================================
+    # CREATE DOCUMENT
+    # =========================================================
+
+    dn = frappe.get_doc(doc)
+
+    dn.company = company
+    dn.customer = customer
+
+    dn.is_return = 0
+    dn.return_against = None
+
+    # IMPORTANT:
+    # Prevent internal transfer validation
+    dn.is_internal_customer = 0
+    dn.represents_company = None
+
+    dn.set_warehouse = default_warehouse
+
+    # =========================================================
+    # SIS CONFIGURATION
+    # =========================================================
+
+    config = frappe.db.get_value(
+        "SIS Configuration",
+        {"company": company},
+        [
+            "fresh_margin",
+            "discounted_margin",
+            "output_gst_min_net_rate"
+        ],
+        as_dict=True
+    )
+
+    if not config:
+        frappe.throw(
+            _(
+                "SIS Configuration not found "
+                "for Company: {0}"
+            ).format(company)
+        )
+
+    fresh_margin = Decimal(
+        str(config.fresh_margin or 0)
+    )
+
+    output_gst_min_net_rate = Decimal(
+        str(config.output_gst_min_net_rate or 0)
+    )
+
+    # =========================================================
+    # ITEM CODES
+    # =========================================================
+
+    item_codes = list({
+        item.item_code
+        for item in dn.items
+        if item.item_code
+    })
+
+    # =========================================================
+    # BATCH MRP
+    # =========================================================
+
+    rate_map = {}
+
+    if item_codes:
+        rate_map = get_item_delivery_rate_map(
+            item_codes,
+            company
+        ) or {}
 
     # =========================================================
     # DECIMAL HELPERS
@@ -421,146 +904,16 @@ def create_delivery_note(doc):
         )
 
     # =========================================================
-    # STOCK TAKING NAME
+    # PROCESS ALL ITEMS
     # =========================================================
 
-    stock_taking_name = (
-        doc.get("custom_stock_taking")
-        or doc.get("stock_taking")
-    )
+    for idx, item in enumerate(dn.items, start=1):
 
-    if not stock_taking_name:
-        frappe.throw(
-            "Stock Taking reference is required."
-        )
+        # -----------------------------------------------------
+        # WAREHOUSE
+        # -----------------------------------------------------
 
-    # =========================================================
-    # GET STOCK TAKING DOCUMENT
-    # =========================================================
-
-    stock_taking = frappe.get_doc(
-        "Stock Taking",
-        stock_taking_name
-    )
-
-    # =========================================================
-    # VALIDATE COMPANY
-    # =========================================================
-
-    if not stock_taking.company:
-        frappe.throw(
-            "Company is required in Stock Taking."
-        )
-
-    stock_taking_company = stock_taking.company
-
-    # =========================================================
-    # GET CUSTOMER FROM STOCK TAKING SETTINGS
-    # =========================================================
-
-    settings = frappe.get_doc(
-        "Stock Taking Settings",
-        "Stock Taking Settings"
-    )
-
-    customer = None
-
-    for row in settings.stock_taking_customer:
-
-        if row.company == stock_taking_company:
-            customer = row.customer
-            break
-
-    # =========================================================
-    # VALIDATE CUSTOMER
-    # =========================================================
-
-    if not customer:
-        frappe.throw(
-            f"Please add Company <b>{stock_taking_company}</b> "
-            "and its Customer in Stock Taking Settings."
-        )
-
-    # =========================================================
-    # CREATE DELIVERY NOTE DOCUMENT
-    # =========================================================
-
-    dn = frappe.get_doc(doc)
-
-    # =========================================================
-    # SET COMPANY
-    # =========================================================
-
-    dn.company = stock_taking_company
-
-    # =========================================================
-    # SET CUSTOMER
-    # =========================================================
-
-    dn.customer = customer
-
-    # =========================================================
-    # SET STOCK TAKING REFERENCE
-    # =========================================================
-
-    if hasattr(dn, "custom_stock_taking"):
-        dn.custom_stock_taking = stock_taking_name
-
-    # =========================================================
-    # NORMAL OUTWARD DELIVERY NOTE
-    # =========================================================
-
-    dn.is_return = 0
-    dn.return_against = None
-
-    dn.is_internal_customer = 0
-    dn.represents_company = None
-
-    # =========================================================
-    # GET WAREHOUSE FROM STOCK TAKING
-    # =========================================================
-
-    stock_taking_warehouses = frappe.db.get_all(
-        "stock taking Warehouse",
-        filters={
-            "parent": stock_taking_name,
-            "parenttype": "Stock Taking",
-            "parentfield": "warehouse"
-        },
-        fields=[
-            "warehuose",
-            "idx"
-        ],
-        order_by="idx asc"
-    )
-
-    if not stock_taking_warehouses:
-        frappe.throw(
-            f"No Warehouse found in Stock Taking "
-            f"{stock_taking_name}."
-        )
-
-    default_warehouse = (
-        stock_taking_warehouses[0].get("warehuose")
-    )
-
-    if not default_warehouse:
-        frappe.throw(
-            f"Warehouse is empty in Stock Taking "
-            f"{stock_taking_name}."
-        )
-
-    # =========================================================
-    # SET DELIVERY NOTE WAREHOUSE
-    # =========================================================
-
-    dn.set_warehouse = default_warehouse
-
-    # =========================================================
-    # REMOVE INTERNAL TRANSFER FIELDS
-    # =========================================================
-
-    for item in dn.items:
+        item.warehouse = default_warehouse
 
         if hasattr(item, "target_warehouse"):
             item.target_warehouse = None
@@ -568,176 +921,83 @@ def create_delivery_note(doc):
         if hasattr(item, "from_warehouse"):
             item.from_warehouse = None
 
-        item.warehouse = default_warehouse
-
-    # =========================================================
-    # SIS CONFIGURATION
-    # =========================================================
-
-    config = frappe.db.get_value(
-        "SIS Configuration",
-        {
-            "company": dn.company
-        },
-        [
-            "fresh_margin",
-            "discounted_margin",
-            "output_gst_min_net_rate"
-        ],
-        as_dict=True
-    )
-
-    if not config:
-        frappe.throw(
-            f"SIS Configuration not found for Company: "
-            f"{dn.company}"
-        )
-
-    # =========================================================
-    # CONFIG VALUES
-    # =========================================================
-
-    fresh_margin = D(
-        config.fresh_margin
-    )
-
-    discounted_margin = D(
-        config.discounted_margin
-    )
-
-    output_gst_min_net_rate = D(
-        config.output_gst_min_net_rate
-    )
-
-    # =========================================================
-    # CALCULATE ITEMS
-    # =========================================================
-
-    for item in dn.items:
-
-        # -----------------------------------------------------
-        # SET WAREHOUSE
-        # -----------------------------------------------------
-
-        item.warehouse = default_warehouse
-
         # -----------------------------------------------------
         # QUANTITY
         # -----------------------------------------------------
 
-        qty = D(
-            item.qty
-        )
+        qty = D(item.qty)
 
         if qty <= 0:
             continue
 
-        # =====================================================
-        # GET ITEM MRP
-        # =====================================================
+        # -----------------------------------------------------
+        # MRP
+        # -----------------------------------------------------
 
-        rate_data = get_item_delivery_rate(
-            item.item_code,
-            dn.company
-        )
-
-        if not rate_data:
-            frappe.throw(
-                f"MRP not found for Item "
-                f"<b>{item.item_code}</b> "
-                f"in submitted Purchase Receipt "
-                f"for Company <b>{dn.company}</b>."
-            )
-
-        # IMPORTANT:
-        # Keep MRP as Decimal because qty is also Decimal
         mrp = D(
-            rate_data.get("mrp") or 0
+            rate_map.get(
+                item.item_code,
+                0
+            )
         )
 
         if mrp <= 0:
             frappe.throw(
-                f"MRP is zero for Item "
-                f"<b>{item.item_code}</b>."
+                _(
+                    "MRP not found for Item "
+                    "<b>{0}</b> in submitted "
+                    "Purchase Receipt / Opening Stock "
+                    "for Company <b>{1}</b>."
+                ).format(
+                    item.item_code,
+                    company
+                )
             )
 
-        # Delivery Note fields accept numeric/float value
         item.rate = float(mrp)
         item.price_list_rate = float(mrp)
 
-        # =====================================================
-        # TAXABLE AMOUNT
-        # =====================================================
+        # -----------------------------------------------------
+        # TAXABLE
+        # -----------------------------------------------------
 
-        taxable_amount_value = R2(
+        taxable = R2(
             mrp * qty
         )
 
-        # =====================================================
-        # OUTPUT GST %
-        # =====================================================
+        # -----------------------------------------------------
+        # GST
+        # -----------------------------------------------------
 
-        if (
-            abs(taxable_amount_value)
-            <= output_gst_min_net_rate
-        ):
-            output_gst_percent = D(5)
-
+        if abs(taxable) <= output_gst_min_net_rate:
+            gst_percent = Decimal("5")
         else:
-            output_gst_percent = D(18)
+            gst_percent = Decimal("18")
 
-        # =====================================================
-        # OUTPUT GST VALUE
-        # =====================================================
-
-        output_gst_value = R2(
-            taxable_amount_value
-            * output_gst_percent
-            / (
-                D(100)
-                + output_gst_percent
-            )
+        gst_value = R2(
+            taxable
+            * gst_percent
+            / (Decimal("100") + gst_percent)
         )
-
-        # =====================================================
-        # NET SALE VALUE
-        # =====================================================
 
         net_sale_value = R2(
-            taxable_amount_value
-            - output_gst_value
+            taxable - gst_value
         )
-
-        # =====================================================
-        # MARGIN
-        # =====================================================
-
-        margin_percent = fresh_margin
 
         margin_value = R2(
-            taxable_amount_value
-            * margin_percent
-            / D(100)
+            taxable
+            * fresh_margin
+            / Decimal("100")
         )
 
-        # =====================================================
-        # TOTAL INVOICE AMOUNT
-        # =====================================================
+        # -----------------------------------------------------
+        # CUSTOM VALUES
+        # -----------------------------------------------------
 
-        total_invoice_amount = R2(
-            taxable_amount_value
-        )
-
-        # =====================================================
-        # SET CUSTOM FIELDS
-        # =====================================================
-
-        item.custom_output_gst_ = float(
-            output_gst_percent
-        )
+        item.custom_output_gst_ = float(gst_percent)
 
         item.custom_output_gst_value = float(
-            output_gst_value
+            gst_value
         )
 
         item.custom_net_sale_value = float(
@@ -749,724 +1009,47 @@ def create_delivery_note(doc):
         )
 
         item.custom_margins_ = float(
-            margin_percent
+            fresh_margin
         )
 
         item.custom_total_invoice_amount = float(
-            total_invoice_amount
-        )
-
-        # =====================================================
-        # LOG ITEM RATE
-        # =====================================================
-
-        frappe.logger().info(
-            f"""
-STOCK TAKING DELIVERY NOTE ITEM
-================================
-Stock Taking : {stock_taking_name}
-Item         : {item.item_code}
-Qty          : {qty}
-MRP          : {mrp}
-Rate         : {item.rate}
-Warehouse    : {item.warehouse}
-"""
+            taxable
         )
 
     # =========================================================
-    # FINAL FORCE
+    # INSERT DRAFT
     # =========================================================
 
-    dn.is_return = 0
-    dn.return_against = None
-
-    dn.is_internal_customer = 0
-    dn.represents_company = None
-
-    # =========================================================
-    # FINAL ITEM VALUES
-    # =========================================================
-
-    for item in dn.items:
-
-        item.warehouse = default_warehouse
-
-        if hasattr(item, "target_warehouse"):
-            item.target_warehouse = None
-
-        if hasattr(item, "from_warehouse"):
-            item.from_warehouse = None
-
-    # =========================================================
-    # VALIDATE SET WAREHOUSE
-    # =========================================================
-
-    if not dn.set_warehouse:
-        frappe.throw(
-            "Delivery Note Set Warehouse is missing."
-        )
-
-    # =========================================================
-    # VALIDATE ITEM WAREHOUSE
-    # =========================================================
-
-    for idx, item in enumerate(
-        dn.items,
-        start=1
-    ):
-
-        if not item.warehouse:
-
-            frappe.throw(
-                f"Row {idx}: Warehouse is missing "
-                f"for Item {item.item_code}"
-            )
-
-        item.warehouse = default_warehouse
-
-    # =========================================================
-    # FINAL LOG
-    # =========================================================
-
-    frappe.logger().info(
-        f"""
-FINAL DELIVERY NOTE
-===================
-Stock Taking  : {stock_taking_name}
-Company       : {dn.company}
-Customer      : {dn.customer}
-Set Warehouse : {dn.set_warehouse}
-Internal      : {dn.is_internal_customer}
-Represents    : {dn.represents_company}
-Is Return     : {dn.is_return}
-Warehouse     : {default_warehouse}
-Items         : {len(dn.items)}
-Docstatus     : {dn.docstatus}
-"""
-    )
-
-    # =========================================================
-    # INSERT AS DRAFT
-    # =========================================================
-    #
-    # IMPORTANT:
-    # Delivery Note will remain Draft.
-    # User will manually review and submit.
-    #
-    # =========================================================
+    # Keep document as Draft
+    dn.docstatus = 0
 
     dn.flags.ignore_permissions = True
+    dn.flags.ignore_mandatory = True
+    dn.flags.ignore_links = True
 
     dn.insert(
-        ignore_permissions=True
+        ignore_permissions=True,
+        ignore_mandatory=True
     )
-
-    # frappe.db.commit()
-
-    # =========================================================
-    # RETURN
-    # =========================================================
 
     return {
         "name": dn.name,
         "doctype": "Delivery Note",
         "docstatus": dn.docstatus
     }
-# =============================================================
-# GET ITEM DELIVERY RATE
-# =============================================================
-
-# def get_item_delivery_rate(
-#     item_code,
-#     company
-# ):
-
-#     from decimal import Decimal
-
-#     # =========================================================
-#     # GET LATEST PURCHASE RECEIPT RATE
-#     # =========================================================
-
-#     pri = frappe.db.sql(
-#         """
-#         SELECT
-#             pri.custom_single_item_rate AS single_item_rate,
-#             pri.base_price_list_rate AS base_price_list_rate
-
-#         FROM `tabPurchase Receipt Item` pri
-
-#         JOIN `tabPurchase Receipt` pr
-#             ON pr.name = pri.parent
-
-#         WHERE
-#             pri.item_code = %s
-#             AND pr.company = %s
-#             AND pr.docstatus = 1
-
-#         ORDER BY
-#             pr.posting_date DESC,
-#             pr.posting_time DESC,
-#             pri.creation DESC
-
-#         LIMIT 1
-#         """,
-#         (
-#             item_code,
-#             company
-#         ),
-#         as_dict=True
-#     )
-
-#     # =========================================================
-#     # NO PURCHASE RATE FOUND
-#     # =========================================================
-
-#     if not pri:
-
-#         return (
-#             Decimal("0"),
-#             Decimal("0")
-#         )
-
-#     row = pri[0]
-
-#     # =========================================================
-#     # SINGLE ITEM RATE
-#     # =========================================================
-
-#     single_item_rate = abs(
-#         Decimal(
-#             str(
-#                 row.single_item_rate or 0
-#             )
-#         )
-#     )
-
-#     # =========================================================
-#     # BASE PRICE LIST RATE
-#     # =========================================================
-
-#     base_price_list_rate = abs(
-#         Decimal(
-#             str(
-#                 row.base_price_list_rate or 0
-#             )
-#         )
-#     )
-
-#     # =========================================================
-#     # RETURN
-#     # =========================================================
-
-#     return (
-#         single_item_rate,
-#         base_price_list_rate
-#     )
-
-
-# @frappe.whitelist()
-# def create_stock_entry(doc):
-
-#     import json
-#     from decimal import Decimal
-
-#     if isinstance(doc, str):
-#         doc = json.loads(doc)
-
-#     def D(value):
-#         return Decimal(
-#             str(value or 0)
-#         )
-
-#     def R2(value):
-#         return value.quantize(
-#             Decimal("0.01")
-#         )
-
-#     # =========================================================
-#     # CREATE STOCK ENTRY
-#     # =========================================================
-
-#     se = frappe.get_doc(doc)
-
-#     se.insert(
-#         ignore_permissions=True
-#     )
-
-#     # =========================================================
-#     # SIS CONFIGURATION
-#     # =========================================================
-
-#     config = frappe.db.get_value(
-#         "SIS Configuration",
-#         {
-#             "company": se.company
-#         },
-#         [
-#             "fresh_margin",
-#             "discounted_margin",
-#             "output_gst_min_net_rate",
-#             "input_gst_for_opening_stock",
-#             "auto_credit_note_percent",
-#             "discount_threshold"
-#         ],
-#         as_dict=True
-#     )
-
-#     if not config:
-#         frappe.throw(
-#             f"SIS Configuration not found for Company: {se.company}"
-#         )
-
-#     fresh_margin = D(
-#         config.fresh_margin
-#     )
-
-#     discounted_margin = D(
-#         config.discounted_margin
-#     )
-
-#     output_gst_min_net_rate = D(
-#         config.output_gst_min_net_rate
-#     )
-
-#     input_gst_for_opening_stock = D(
-#         config.input_gst_for_opening_stock
-#     )
-
-#     # =========================================================
-#     # CALCULATE EACH ITEM
-#     # =========================================================
-
-#     for item in se.items:
-
-#         qty = D(item.qty)
-
-#         # =====================================================
-#         # INPUT GST + RATE
-#         # =====================================================
-
-#         (
-#             st_percent,
-#             input_gst_value,
-#             single_item_rate,
-#             base_price_list_rate
-#         ) = get_item_input_gst(
-#             item.item_code,
-#             se.company
-#         )
-
-#         st_percent = D(
-#             st_percent
-#         )
-
-#         input_gst_value = D(
-#             input_gst_value
-#         )
-
-#         base_price_list_rate = D(
-#             base_price_list_rate
-#         )
-
-#         single_item_rate = D(
-#             single_item_rate
-#         )
-
-#         # =====================================================
-#         # TAXABLE AMOUNT
-#         # =====================================================
-
-#         taxable_amount_value = R2(
-#             base_price_list_rate
-#             *
-#             qty
-#         )
-
-#         # =====================================================
-#         # OUTPUT GST %
-#         # =====================================================
-
-#         if (
-#             abs(taxable_amount_value)
-#             <= output_gst_min_net_rate
-#         ):
-#             output_gst_percent = D(5)
-#         else:
-#             output_gst_percent = D(18)
-
-#         # =====================================================
-#         # OUTPUT GST VALUE
-#         # =====================================================
-
-#         output_gst_value = R2(
-#             taxable_amount_value
-#             *
-#             output_gst_percent
-#             /
-#             (
-#                 D(100)
-#                 +
-#                 output_gst_percent
-#             )
-#         )
-
-#         # =====================================================
-#         # NET SALE VALUE
-#         # =====================================================
-
-#         net_sale_value = R2(
-#             taxable_amount_value
-#             -
-#             output_gst_value
-#         )
-
-#         # =====================================================
-#         # MARGIN %
-#         # =====================================================
-
-#         margin_percent = fresh_margin
-
-#         # =====================================================
-#         # MARGIN VALUE
-#         # =====================================================
-
-#         margin_value = R2(
-#             taxable_amount_value
-#             *
-#             margin_percent
-#             /
-#             D(100)
-#         )
-
-#         # =====================================================
-#         # INV BASE VALUE
-#         # =====================================================
-
-#         inv_base_value = R2(
-#             net_sale_value
-#             -
-#             margin_value
-#         )
-
-#         # =====================================================
-#         # INPUT GST 0 CASE
-#         # =====================================================
-
-#         if input_gst_value == 0:
-
-#             if (
-#                 abs(inv_base_value)
-#                 <= input_gst_for_opening_stock
-#             ):
-#                 st_percent = D(5)
-#             else:
-#                 st_percent = D(18)
-
-#             input_gst_value = R2(
-#                 inv_base_value
-#                 *
-#                 st_percent
-#                 /
-#                 D(100)
-#             )
-
-#         # =====================================================
-#         # COLLECTABLE
-#         # =====================================================
-
-#         custom_collectable = R2(
-#             inv_base_value
-#             +
-#             input_gst_value
-#         )
-
-#         # =====================================================
-#         # SET CUSTOM FIELDS
-#         # =====================================================
-
-#         item.custom_output_gst = float(
-#             output_gst_percent
-#         )
-
-#         item.custom_taxable_amount_value = float(
-#             taxable_amount_value
-#         )
-
-#         item.custom_output_gst_value = float(
-#             output_gst_value
-#         )
-
-#         item.custom_margin = float(
-#             margin_percent
-#         )
-
-#         item.custom_margin_value = float(
-#             margin_value
-#         )
-
-#         item.custom_inv_base_value = float(
-#             inv_base_value
-#         )
-
-#         item.custom_input_gst_value = float(
-#             input_gst_value * qty
-#         )
-
-#         item.custom_collectable = float(
-#             inv_base_value
-#             +
-#             (
-#                 input_gst_value
-#                 *
-#                 qty
-#             )
-#         )
-
-#         # =====================================================
-#         # DEBUG
-#         # =====================================================
-
-#         frappe.logger().info(
-#             f"""
-# STOCK ENTRY ITEM: {item.item_code}
-# QTY: {qty}
-# BASE PRICE LIST RATE: {base_price_list_rate}
-# TAXABLE: {taxable_amount_value}
-# OUTPUT GST %: {output_gst_percent}
-# OUTPUT GST VALUE: {output_gst_value}
-# MARGIN %: {margin_percent}
-# MARGIN VALUE: {margin_value}
-# INV BASE: {inv_base_value}
-# INPUT GST %: {st_percent}
-# INPUT GST VALUE: {input_gst_value}
-# SINGLE ITEM RATE: {single_item_rate}
-# COLLECTABLE: {custom_collectable}
-# """
-#         )
-
-#     # =========================================================
-#     # SAVE
-#     # =========================================================
-
-#     se.save(
-#         ignore_permissions=True
-#     )
-
-#     frappe.db.commit()
-
-#     return se
 
 
 # =============================================================
-# GET ITEM INPUT GST
-#
-# MATERIAL RECEIPT ONLY
+# CREATE DELIVERY NOTE RETURN
 # =============================================================
-
-def get_item_input_gst(
-    item_code,
-    company
-):
-
-    from decimal import Decimal
-
-    pri = frappe.db.sql(
-        """
-        SELECT
-            pri.custom_single_item_rate AS single_item_rate,
-            pri.custom_single_item_input_gst_amount AS gst_amount,
-            pri.base_price_list_rate AS base_price_list_rate
-
-        FROM `tabPurchase Receipt Item` pri
-
-        JOIN `tabPurchase Receipt` pr
-            ON pr.name = pri.parent
-
-        WHERE
-            pri.item_code = %s
-            AND pr.company = %s
-            AND pr.docstatus = 1
-
-        ORDER BY
-            pr.posting_date DESC,
-            pr.posting_time DESC,
-            pri.creation DESC
-
-        LIMIT 1
-        """,
-        (
-            item_code,
-            company
-        ),
-        as_dict=True
-    )
-
-    if not pri:
-
-        return (
-            Decimal("0"),
-            Decimal("0"),
-            Decimal("0"),
-            Decimal("0")
-        )
-
-    row = pri[0]
-
-    single_item_rate = abs(
-        Decimal(
-            str(
-                row.single_item_rate or 0
-            )
-        )
-    )
-
-    gst_amount_per_item = abs(
-        Decimal(
-            str(
-                row.gst_amount or 0
-            )
-        )
-    )
-
-    base_price_list_rate = abs(
-        Decimal(
-            str(
-                row.base_price_list_rate or 0
-            )
-        )
-    )
-
-    gst_percent = (
-
-        abs(
-            (
-                gst_amount_per_item
-                *
-                Decimal("100")
-            )
-            /
-            single_item_rate
-        )
-
-        if single_item_rate > 0
-
-        else Decimal("0")
-    )
-
-    return (
-        gst_percent,
-        gst_amount_per_item,
-        single_item_rate,
-        base_price_list_rate
-    )
-    
-from frappe.utils import flt
-# =============================================================
-# GET ITEM DELIVERY RATE / MRP
-#
-# PRIORITY:
-# 1. Purchase Receipt -> base_price_list_rate
-# 2. Opening Stock Stock Reconciliation -> valuation_rate
-# =============================================================
-
-def get_item_delivery_rate(item_code, company):
-
-    # =========================================================
-    # 1. PURCHASE RECEIPT MRP
-    # =========================================================
-
-    result = frappe.db.sql(
-        """
-        SELECT
-            pri.base_price_list_rate AS mrp
-        FROM `tabPurchase Receipt Item` pri
-        INNER JOIN `tabPurchase Receipt` pr
-            ON pr.name = pri.parent
-        WHERE
-            pri.item_code = %s
-            AND pr.company = %s
-            AND pr.docstatus = 1
-            AND IFNULL(pri.base_price_list_rate, 0) > 0
-        ORDER BY
-            pr.posting_date DESC,
-            pr.posting_time DESC,
-            pr.creation DESC
-        LIMIT 1
-        """,
-        (item_code, company),
-        as_dict=True
-    )
-
-    if result:
-        return result[0]
-
-    # =========================================================
-    # 2. OPENING STOCK STOCK RECONCILIATION
-    #
-    # Stock Reconciliation:
-    #     purpose = Opening Stock
-    #     company = Stock Taking Company
-    #
-    # Stock Reconciliation Item:
-    #     item_code = Stock Taking Item
-    #     valuation_rate = MRP
-    # =========================================================
-
-    result = frappe.db.sql(
-        """
-        SELECT
-            sri.valuation_rate AS mrp
-        FROM `tabStock Reconciliation Item` sri
-        INNER JOIN `tabStock Reconciliation` sr
-            ON sr.name = sri.parent
-        WHERE
-            sri.item_code = %s
-            AND sr.company = %s
-            AND sr.purpose = 'Opening Stock'
-            AND sr.docstatus = 1
-            AND IFNULL(sri.valuation_rate, 0) > 0
-        ORDER BY
-            sr.posting_date DESC,
-            sr.posting_time DESC,
-            sr.creation DESC,
-            sri.idx DESC
-        LIMIT 1
-        """,
-        (item_code, company),
-        as_dict=True
-    )
-
-    if result:
-        return result[0]
-
-    # =========================================================
-    # MRP NOT FOUND
-    # =========================================================
-
-    return None
 
 @frappe.whitelist()
 def create_delivery_note_return(doc):
-    """
-    Create a Draft Delivery Note Return for Extra Stock
-    found during Stock Taking.
-
-    Stock Taking
-        ↓
-    Extra Stock
-        ↓
-    Delivery Note Return
-        ↓
-    Manual Submit
-        ↓
-    Stock IN
-    """
-
     import json
     from decimal import Decimal, ROUND_HALF_UP
 
     # =========================================================
-    # PARSE DOC
+    # PARSE DOCUMENT
     # =========================================================
 
     if isinstance(doc, str):
@@ -1478,20 +1061,7 @@ def create_delivery_note_return(doc):
         )
 
     # =========================================================
-    # DECIMAL HELPERS
-    # =========================================================
-
-    def D(value):
-        return Decimal(str(value or 0))
-
-    def R2(value):
-        return value.quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP
-        )
-
-    # =========================================================
-    # STOCK TAKING NAME
+    # STOCK TAKING
     # =========================================================
 
     stock_taking_name = (
@@ -1504,142 +1074,75 @@ def create_delivery_note_return(doc):
             _("Stock Taking reference is required.")
         )
 
-    # =========================================================
-    # GET STOCK TAKING
-    # =========================================================
-
-    stock_taking = frappe.get_doc(
+    stock_taking = frappe.db.get_value(
         "Stock Taking",
-        stock_taking_name
+        stock_taking_name,
+        ["company"],
+        as_dict=True
     )
 
-    # =========================================================
-    # VALIDATE COMPANY
-    # =========================================================
+    if not stock_taking:
+        frappe.throw(
+            _("Stock Taking {0} not found.").format(
+                stock_taking_name
+            )
+        )
 
-    if not stock_taking.company:
+    company = stock_taking.company
+
+    if not company:
         frappe.throw(
             _("Company is required in Stock Taking.")
         )
-
-    stock_taking_company = stock_taking.company
-
-    # =========================================================
-    # GET CUSTOMER FROM STOCK TAKING SETTINGS
-    # =========================================================
-
-    settings = frappe.get_doc(
-        "Stock Taking Settings",
-        "Stock Taking Settings"
-    )
-
-    customer = None
-
-    for row in settings.get("stock_taking_customer") or []:
-
-        if row.company == stock_taking_company:
-            customer = row.customer
-            break
-
-    # =========================================================
-    # VALIDATE CUSTOMER
-    # =========================================================
-
-    if not customer:
-        frappe.throw(
-            _(
-                "Customer is not configured in Stock Taking Settings "
-                "for company <b>{0}</b>."
-            ).format(stock_taking_company)
-        )
-
-    # =========================================================
-    # CREATE DELIVERY NOTE DOCUMENT
-    # =========================================================
-
-    dn = frappe.get_doc(doc)
-
-    # =========================================================
-    # COMPANY
-    # =========================================================
-
-    dn.company = stock_taking_company
 
     # =========================================================
     # CUSTOMER
     # =========================================================
 
-    dn.customer = customer
-
-    # =========================================================
-    # STOCK TAKING REFERENCE
-    # =========================================================
-
-    if hasattr(dn, "custom_stock_taking"):
-        dn.custom_stock_taking = stock_taking_name
-
-    # =========================================================
-    # RETURN DELIVERY NOTE
-    # =========================================================
-
-    dn.is_return = 1
-
-    # No original Delivery Note against this return.
-    # Return is generated directly from Stock Taking.
-
-    dn.return_against = None
-
-    # =========================================================
-    # NORMAL CUSTOMER
-    # =========================================================
-
-    dn.is_internal_customer = 0
-    dn.represents_company = None
-
-    # =========================================================
-    # GET WAREHOUSE FROM STOCK TAKING
-    # =========================================================
-
-    stock_taking_warehouses = frappe.get_all(
-        "stock taking Warehouse",
-        filters={
-            "parent": stock_taking_name,
-            "parenttype": "Stock Taking",
-            "parentfield": "warehouse",
+    customer = frappe.db.get_value(
+        "Stock Taking Customer",
+        {
+            "parent": "Stock Taking Settings",
+            "parenttype": "Stock Taking Settings",
+            "parentfield": "stock_taking_customer",
+            "company": company
         },
-        fields=[
-            "warehuose",
-            "idx"
-        ],
-        order_by="idx asc",
+        "customer"
     )
 
-    default_warehouse = None
-
-    if stock_taking_warehouses:
-
-        default_warehouse = (
-            stock_taking_warehouses[0].get("warehuose")
+    if not customer:
+        frappe.throw(
+            _(
+                "Customer is not configured in "
+                "Stock Taking Settings for company {0}."
+            ).format(company)
         )
 
     # =========================================================
-    # FALLBACK WAREHOUSE FROM STOCK TAKING ITEMS
+    # DEFAULT WAREHOUSE
     # =========================================================
 
+    default_warehouse = frappe.db.get_value(
+        "stock taking Warehouse",
+        {
+            "parent": stock_taking_name,
+            "parenttype": "Stock Taking",
+            "parentfield": "warehouse"
+        },
+        "warehuose",
+        order_by="idx asc"
+    )
+
+    # Fallback: use warehouse from incoming document items
     if not default_warehouse:
 
-        for row in stock_taking.items:
+        for row in (doc.get("items") or []):
 
-            if row.warehouse:
-                default_warehouse = row.warehouse
+            if row.get("warehouse"):
+                default_warehouse = row.get("warehouse")
                 break
 
-    # =========================================================
-    # VALIDATE WAREHOUSE
-    # =========================================================
-
     if not default_warehouse:
-
         frappe.throw(
             _(
                 "Warehouse is required to create "
@@ -1648,8 +1151,20 @@ def create_delivery_note_return(doc):
         )
 
     # =========================================================
-    # SET DELIVERY NOTE WAREHOUSE
+    # CREATE DOCUMENT
     # =========================================================
+
+    dn = frappe.get_doc(doc)
+
+    dn.company = company
+    dn.customer = customer
+
+    dn.is_return = 1
+    dn.return_against = None
+
+    # Prevent internal transfer validation
+    dn.is_internal_customer = 0
+    dn.represents_company = None
 
     dn.set_warehouse = default_warehouse
 
@@ -1659,9 +1174,7 @@ def create_delivery_note_return(doc):
 
     config = frappe.db.get_value(
         "SIS Configuration",
-        {
-            "company": dn.company
-        },
+        {"company": company},
         [
             "fresh_margin",
             "discounted_margin",
@@ -1671,173 +1184,164 @@ def create_delivery_note_return(doc):
     )
 
     if not config:
-
         frappe.throw(
             _(
-                "SIS Configuration not found for Company: {0}"
-            ).format(dn.company)
+                "SIS Configuration not found "
+                "for Company: {0}"
+            ).format(company)
         )
 
+    fresh_margin = Decimal(
+        str(config.fresh_margin or 0)
+    )
+
+    output_gst_min_net_rate = Decimal(
+        str(config.output_gst_min_net_rate or 0)
+    )
+
     # =========================================================
-    # CONFIG VALUES
+    # ITEM CODES
     # =========================================================
 
-    fresh_margin = D(
-        config.fresh_margin
-    )
+    item_codes = list({
+        item.item_code
+        for item in dn.items
+        if item.item_code
+    })
 
-    discounted_margin = D(
-        config.discounted_margin
-    )
+    rate_map = {}
 
-    output_gst_min_net_rate = D(
-        config.output_gst_min_net_rate
-    )
+    if item_codes:
+        rate_map = get_item_delivery_rate_map(
+            item_codes,
+            company
+        ) or {}
+
+    # =========================================================
+    # DECIMAL HELPERS
+    # =========================================================
+
+    def D(value):
+        return Decimal(str(value or 0))
+
+    def R2(value):
+        return value.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
+        )
 
     # =========================================================
     # PROCESS ITEMS
     # =========================================================
 
-    for item in dn.items:
+    for idx, item in enumerate(dn.items, start=1):
 
-        item.target_warehouse = None
-        item.from_warehouse = None
+        # -----------------------------------------------------
+        # WAREHOUSE
+        # -----------------------------------------------------
 
-        if not item.warehouse:
-            item.warehouse = default_warehouse
-
-        # =====================================================
-        # GET MRP
-        # =====================================================
-
-        rate_data = get_item_delivery_rate(
-            item.item_code,
-            dn.company
+        item.warehouse = (
+            item.warehouse
+            or default_warehouse
         )
 
-        if not rate_data:
-            frappe.throw(
-                f"MRP not found for Item "
-                f"<b>{item.item_code}</b> "
-                f"in submitted Purchase Receipt "
-                f"for Company <b>{dn.company}</b>."
-            )
+        if hasattr(item, "target_warehouse"):
+            item.target_warehouse = None
 
-        mrp = D(
-            rate_data.get("mrp") or 0
-        )
+        if hasattr(item, "from_warehouse"):
+            item.from_warehouse = None
 
-        if mrp <= 0:
-            frappe.throw(
-                f"MRP is zero for Item "
-                f"<b>{item.item_code}</b>."
-            )
-
-        # =====================================================
-        # RETURN QTY MUST BE NEGATIVE
-        # =====================================================
+        # -----------------------------------------------------
+        # QUANTITY
+        # -----------------------------------------------------
 
         qty = D(item.qty)
 
         if qty > 0:
             qty = -qty
 
+        if qty == 0:
+            frappe.throw(
+                _(
+                    "Row {0}: Quantity is required "
+                    "for Item {1}."
+                ).format(
+                    idx,
+                    item.item_code
+                )
+            )
+
         item.qty = float(qty)
 
-        # =====================================================
-        # RATE / MRP
-        # =====================================================
+        # -----------------------------------------------------
+        # MRP
+        # -----------------------------------------------------
+
+        mrp = D(
+            rate_map.get(
+                item.item_code,
+                0
+            )
+        )
+
+        if mrp <= 0:
+            frappe.throw(
+                _(
+                    "MRP not found for Item "
+                    "<b>{0}</b>."
+                ).format(
+                    item.item_code
+                )
+            )
 
         item.rate = float(mrp)
         item.price_list_rate = float(mrp)
 
-        # =====================================================
-        # AMOUNT
-        # =====================================================
+        # -----------------------------------------------------
+        # TAXABLE
+        # -----------------------------------------------------
 
-        amount = R2(
+        taxable = R2(
             mrp * qty
         )
 
-        item.amount = float(amount)
+        # -----------------------------------------------------
+        # GST
+        # -----------------------------------------------------
 
-        # =====================================================
-        # TAXABLE AMOUNT
-        # =====================================================
-
-        taxable_amount_value = R2(
-            mrp * qty
-        )
-
-        # =====================================================
-        # OUTPUT GST %
-        # =====================================================
-
-        if (
-            abs(taxable_amount_value)
-            <= output_gst_min_net_rate
-        ):
-
-            output_gst_percent = D(5)
-
+        if abs(taxable) <= output_gst_min_net_rate:
+            gst_percent = Decimal("5")
         else:
+            gst_percent = Decimal("18")
 
-            output_gst_percent = D(18)
-
-        # =====================================================
-        # OUTPUT GST VALUE
-        # =====================================================
-
-        output_gst_value = R2(
-            taxable_amount_value
-            * output_gst_percent
-            /
-            (
-                D(100)
-                + output_gst_percent
-            )
+        gst_value = R2(
+            taxable
+            * gst_percent
+            / (Decimal("100") + gst_percent)
         )
-
-        # =====================================================
-        # NET SALE VALUE
-        # =====================================================
 
         net_sale_value = R2(
-            taxable_amount_value
-            - output_gst_value
+            taxable - gst_value
         )
-
-        # =====================================================
-        # MARGIN
-        # =====================================================
-
-        margin_percent = fresh_margin
 
         margin_value = R2(
-            taxable_amount_value
-            * margin_percent
-            /
-            D(100)
+            taxable
+            * fresh_margin
+            / Decimal("100")
         )
 
-        # =====================================================
-        # TOTAL INVOICE AMOUNT
-        # =====================================================
+        # -----------------------------------------------------
+        # VALUES
+        # -----------------------------------------------------
 
-        total_invoice_amount = R2(
-            taxable_amount_value
-        )
-
-        # =====================================================
-        # SET CUSTOM SIS FIELDS
-        # =====================================================
+        item.amount = float(taxable)
 
         item.custom_output_gst_ = float(
-            output_gst_percent
+            gst_percent
         )
 
         item.custom_output_gst_value = float(
-            output_gst_value
+            gst_value
         )
 
         item.custom_net_sale_value = float(
@@ -1849,135 +1353,27 @@ def create_delivery_note_return(doc):
         )
 
         item.custom_margins_ = float(
-            margin_percent
+            fresh_margin
         )
 
         item.custom_total_invoice_amount = float(
-            total_invoice_amount
+            taxable
         )
 
     # =========================================================
-    # FINAL DELIVERY NOTE VALUES
+    # INSERT DRAFT
     # =========================================================
 
-    dn.company = stock_taking_company
-
-    dn.customer = customer
-
-    dn.is_return = 1
-
-    dn.return_against = None
-
-    dn.is_internal_customer = 0
-
-    dn.represents_company = None
-
-    dn.set_warehouse = default_warehouse
-
-    # =========================================================
-    # FINAL ITEM VALIDATION
-    # =========================================================
-
-    for idx, item in enumerate(
-        dn.items,
-        start=1
-    ):
-
-        # -----------------------------------------------------
-        # WAREHOUSE
-        # -----------------------------------------------------
-
-        item.warehouse = default_warehouse
-
-        # -----------------------------------------------------
-        # INTERNAL TRANSFER FIELDS
-        # -----------------------------------------------------
-
-        if hasattr(item, "target_warehouse"):
-            item.target_warehouse = None
-
-        if hasattr(item, "from_warehouse"):
-            item.from_warehouse = None
-
-        # -----------------------------------------------------
-        # QTY
-        # -----------------------------------------------------
-
-        if not item.qty:
-
-            frappe.throw(
-                _(
-                    "Row {0}: Quantity is required "
-                    "for Item {1}."
-                ).format(
-                    idx,
-                    item.item_code
-                )
-            )
-
-        # -----------------------------------------------------
-        # RATE
-        # -----------------------------------------------------
-
-        if not item.rate:
-
-            frappe.throw(
-                _(
-                    "Row {0}: MRP/Rate is missing "
-                    "for Item {1}."
-                ).format(
-                    idx,
-                    item.item_code
-                )
-            )
-
-    # =========================================================
-    # VALIDATE SET WAREHOUSE
-    # =========================================================
-
-    if not dn.set_warehouse:
-
-        frappe.throw(
-            _("Delivery Note Set Warehouse is missing.")
-        )
-
-    # =========================================================
-    # FINAL LOG
-    # =========================================================
-
-    frappe.logger().info(
-        f"""
-FINAL DELIVERY NOTE RETURN
-==========================
-Stock Taking  : {stock_taking_name}
-Company       : {dn.company}
-Customer      : {dn.customer}
-Set Warehouse : {dn.set_warehouse}
-Internal      : {dn.is_internal_customer}
-Represents    : {dn.represents_company}
-Return        : {dn.is_return}
-Return Against: {dn.return_against}
-Warehouse     : {default_warehouse}
-Items         : {len(dn.items)}
-Docstatus     : {dn.docstatus}
-"""
-    )
-
-    # =========================================================
-    # INSERT AS DRAFT
-    # =========================================================
+    dn.docstatus = 0
 
     dn.flags.ignore_permissions = True
-
+    dn.flags.ignore_mandatory = True
+    dn.flags.ignore_links = True
+    
     dn.insert(
-        ignore_permissions=True
+        ignore_permissions=True,
+        ignore_mandatory=True
     )
-
-    # frappe.db.commit()
-
-    # =========================================================
-    # RETURN
-    # =========================================================
 
     return {
         "name": dn.name,
@@ -1986,5 +1382,5 @@ Docstatus     : {dn.docstatus}
         "is_return": dn.is_return,
         "customer": dn.customer,
         "company": dn.company,
-        "set_warehouse": dn.set_warehouse,
+        "set_warehouse": dn.set_warehouse
     }
