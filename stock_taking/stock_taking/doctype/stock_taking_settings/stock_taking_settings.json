@@ -1,0 +1,57 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-02 17:56:00.812929",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "is_margin_calculate_on_dn",
+  "section_break_ioyh",
+  "stock_taking_customer"
+ ],
+ "fields": [
+  {
+   "fieldname": "stock_taking_customer",
+   "fieldtype": "Table",
+   "label": "Stock Taking Customer",
+   "options": "Stock Taking Customer",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_margin_calculate_on_dn",
+   "fieldtype": "Check",
+   "label": " Is Margin Calculate On DN"
+  },
+  {
+   "fieldname": "section_break_ioyh",
+   "fieldtype": "Section Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-02 18:41:47.108138",
+ "modified_by": "Administrator",
+ "module": "Stock Taking",
+ "name": "Stock Taking Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
