@@ -807,143 +807,144 @@ def get_data(filters):
             ) AS difference,
 
 
-            -- =========================================================
+                        -- =========================================================
             -- EXCESS QTY
             --
-            -- Material Receipt
+            -- Delivery Note Return
+            -- Return DN qty negative hoti hai,
+            -- report me Excess Qty positive dikhayenge.
             -- =========================================================
 
-            COALESCE(
-                (
-                    SELECT SUM(sed_mr.qty)
+            (
+                -1 *
+                COALESCE(
+                    (
+                        SELECT SUM(dni_return.qty)
+                        FROM `tabDelivery Note` dn_return
 
-                    FROM `tabStock Entry` se_mr
+                        INNER JOIN `tabDelivery Note Item` dni_return
+                            ON dni_return.parent = dn_return.name
 
-                    INNER JOIN `tabStock Entry Detail` sed_mr
-                        ON sed_mr.parent = se_mr.name
+                        WHERE dn_return.custom_stock_taking = st.name
+                          AND dn_return.is_return = 1
+                          AND dn_return.docstatus IN (0, 1)
 
-                    WHERE se_mr.custom_stock_taking = st.name
+                          AND dni_return.item_code =
+                              iw.item_code
 
-                      AND se_mr.stock_entry_type =
-                          'Material Receipt'
-
-                      AND se_mr.docstatus IN (0, 1)
-
-                      AND sed_mr.item_code =
-                          iw.item_code
-
-                      AND sed_mr.t_warehouse =
-                          iw.warehouse
-
-                ),
-                0
+                          AND dni_return.warehouse =
+                              iw.warehouse
+                    ),
+                    0
+                )
             ) AS excess_qty,
 
 
             -- =========================================================
             -- SHORT QTY
             --
-            -- Material Issue
-            -- Negative value
+            -- Normal Delivery Note
+            -- Normal DN qty positive hoti hai,
+            -- report me Short Qty negative dikhayenge.
             -- =========================================================
 
             (
                 -1 *
-
                 COALESCE(
                     (
-                        SELECT SUM(sed_mi.qty)
+                        SELECT SUM(dni_short.qty)
+                        FROM `tabDelivery Note` dn_short
 
-                        FROM `tabStock Entry` se_mi
+                        INNER JOIN `tabDelivery Note Item` dni_short
+                            ON dni_short.parent = dn_short.name
 
-                        INNER JOIN `tabStock Entry Detail` sed_mi
-                            ON sed_mi.parent = se_mi.name
+                        WHERE dn_short.custom_stock_taking = st.name
+                          AND IFNULL(dn_short.is_return, 0) = 0
+                          AND dn_short.docstatus IN (0, 1)
 
-                        WHERE se_mi.custom_stock_taking =
-                              st.name
-
-                          AND se_mi.stock_entry_type =
-                              'Material Issue'
-
-                          AND se_mi.docstatus IN (0, 1)
-
-                          AND sed_mi.item_code =
+                          AND dni_short.item_code =
                               iw.item_code
 
-                          AND sed_mi.s_warehouse =
+                          AND dni_short.warehouse =
                               iw.warehouse
-
                     ),
                     0
                 )
-
             ) AS short_qty,
 
 
             -- =========================================================
             -- STOCK ADJ QTY
             --
-            -- Material Receipt - Material Issue
+            -- Short Qty + Excess Qty
+            --
+            -- Example:
+            -- Short  = -5
+            -- Excess = +2
+            -- Adjustment = -3
             -- =========================================================
 
             (
+                (
+                    -1 *
+                    COALESCE(
+                        (
+                            SELECT SUM(dni_short_adj.qty)
+                            FROM `tabDelivery Note` dn_short_adj
 
-                COALESCE(
-                    (
-                        SELECT SUM(sed_mr.qty)
+                            INNER JOIN `tabDelivery Note Item` dni_short_adj
+                                ON dni_short_adj.parent =
+                                   dn_short_adj.name
 
-                        FROM `tabStock Entry` se_mr
+                            WHERE dn_short_adj.custom_stock_taking =
+                                  st.name
 
-                        INNER JOIN `tabStock Entry Detail` sed_mr
-                            ON sed_mr.parent = se_mr.name
+                              AND IFNULL(
+                                  dn_short_adj.is_return, 0
+                              ) = 0
 
-                        WHERE se_mr.custom_stock_taking =
-                              st.name
+                              AND dn_short_adj.docstatus IN (0, 1)
 
-                          AND se_mr.stock_entry_type =
-                              'Material Receipt'
+                              AND dni_short_adj.item_code =
+                                  iw.item_code
 
-                          AND se_mr.docstatus IN (0, 1)
-
-                          AND sed_mr.item_code =
-                              iw.item_code
-
-                          AND sed_mr.t_warehouse =
-                              iw.warehouse
-
-                    ),
-                    0
+                              AND dni_short_adj.warehouse =
+                                  iw.warehouse
+                        ),
+                        0
+                    )
                 )
 
-                -
+                +
 
-                COALESCE(
-                    (
-                        SELECT SUM(sed_mi.qty)
+                (
+                    -1 *
+                    COALESCE(
+                        (
+                            SELECT SUM(dni_return_adj.qty)
+                            FROM `tabDelivery Note` dn_return_adj
 
-                        FROM `tabStock Entry` se_mi
+                            INNER JOIN `tabDelivery Note Item`
+                                dni_return_adj
+                                ON dni_return_adj.parent =
+                                   dn_return_adj.name
 
-                        INNER JOIN `tabStock Entry Detail` sed_mi
-                            ON sed_mi.parent = se_mi.name
+                            WHERE dn_return_adj.custom_stock_taking =
+                                  st.name
 
-                        WHERE se_mi.custom_stock_taking =
-                              st.name
+                              AND dn_return_adj.is_return = 1
 
-                          AND se_mi.stock_entry_type =
-                              'Material Issue'
+                              AND dn_return_adj.docstatus IN (0, 1)
 
-                          AND se_mi.docstatus IN (0, 1)
+                              AND dni_return_adj.item_code =
+                                  iw.item_code
 
-                          AND sed_mi.item_code =
-                              iw.item_code
-
-                          AND sed_mi.s_warehouse =
-                              iw.warehouse
-
-                    ),
-                    0
+                              AND dni_return_adj.warehouse =
+                                  iw.warehouse
+                        ),
+                        0
+                    )
                 )
-
             ) AS stock_adj_qty
 
 
