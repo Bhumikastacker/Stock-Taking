@@ -1,4 +1,3 @@
-
 # Copyright (c) 2025, bhumika.d@stackerbee.com and contributors
 # For license information, please see license.txt
 
@@ -12,7 +11,7 @@ from decimal import Decimal, ROUND_HALF_UP
 class StockTaking(Document):
 
     # =========================================================
-    # CANCEL
+    # BEFORE CANCEL
     # =========================================================
 
     def before_cancel(self):
@@ -30,7 +29,6 @@ class StockTaking(Document):
 
         for dn in delivery_notes:
 
-            # Submitted DN cannot be deleted
             if dn.docstatus == 1:
 
                 frappe.throw(
@@ -38,8 +36,362 @@ class StockTaking(Document):
                         "Cannot cancel Stock Taking because "
                         "Delivery Note <b>{0}</b> is Submitted. "
                         "Please cancel it first."
-                    ).format(dn.name)
+                    ).format(
+                        dn.name
+                    )
                 )
+
+    # =========================================================
+    # ON SUBMIT
+    #
+    # Only enqueue heavy processing.
+    # This makes Stock Taking submit much faster.
+    # =========================================================
+
+    def on_submit(self):
+
+        frappe.enqueue(
+            "stock_taking.stock_taking.doctype.stock_taking.stock_taking.process_stock_taking",
+            stock_taking_name=self.name,
+            queue="long",
+            enqueue_after_commit=True,
+            job_name=f"Process Stock Taking {self.name}"
+        )
+
+        frappe.msgprint(
+            _(
+                "Stock Taking <b>{0}</b> submitted successfully.<br><br>"
+                "Stock analysis and Delivery Notes are being created "
+                "in the background."
+            ).format(
+                self.name
+            ),
+            indicator="blue"
+        )
+
+
+# =============================================================
+# PROCESS STOCK TAKING
+#
+# Heavy processing runs in background.
+# =============================================================
+
+def process_stock_taking(stock_taking_name):
+
+    try:
+
+        # =====================================================
+        # LOAD STOCK TAKING
+        # =====================================================
+
+        stock_taking = frappe.get_doc(
+            "Stock Taking",
+            stock_taking_name
+        )
+
+        warehouse_data = {}
+
+        # =====================================================
+        # BUILD SCANNED DATA
+        # =====================================================
+
+        for row in stock_taking.items or []:
+
+            warehouse = row.warehouse
+
+            if not warehouse:
+
+                frappe.throw(
+                    _(
+                        "Warehouse is mandatory for Item Row {0}."
+                    ).format(
+                        row.idx
+                    )
+                )
+
+            if warehouse not in warehouse_data:
+
+                warehouse_data[warehouse] = {
+                    "scanned_serials": set(),
+                    "scanned_items": {}
+                }
+
+            # -------------------------------------------------
+            # SERIAL NUMBERS
+            # -------------------------------------------------
+
+            serials = []
+
+            if row.serial_no:
+
+                serials = [
+                    serial.strip()
+                    for serial in str(
+                        row.serial_no
+                    ).split("\n")
+                    if serial.strip()
+                ]
+
+            warehouse_data[
+                warehouse
+            ][
+                "scanned_serials"
+            ].update(
+                serials
+            )
+
+            # -------------------------------------------------
+            # ITEM
+            # -------------------------------------------------
+
+            item_code = row.item_code
+
+            if not item_code:
+                continue
+
+            if item_code not in warehouse_data[
+                warehouse
+            ][
+                "scanned_items"
+            ]:
+
+                warehouse_data[
+                    warehouse
+                ][
+                    "scanned_items"
+                ][
+                    item_code
+                ] = {
+                    "physical_count": 0,
+                    "serials": []
+                }
+
+            item_data = warehouse_data[
+                warehouse
+            ][
+                "scanned_items"
+            ][
+                item_code
+            ]
+
+            item_data[
+                "physical_count"
+            ] += flt(
+                row.physical_count or 0
+            )
+
+            item_data[
+                "serials"
+            ].extend(
+                serials
+            )
+
+        # =====================================================
+        # REMOVE DUPLICATE SERIALS
+        # =====================================================
+
+        for warehouse, data in warehouse_data.items():
+
+            for item_code, item_data in data[
+                "scanned_items"
+            ].items():
+
+                item_data[
+                    "serials"
+                ] = list(
+                    dict.fromkeys(
+                        item_data[
+                            "serials"
+                        ]
+                    )
+                )
+
+        # =====================================================
+        # ANALYZE STOCK
+        # =====================================================
+
+        all_issue_items = []
+        all_receipt_items = []
+
+        for warehouse, data in warehouse_data.items():
+
+            result = analyze_stock_taking(
+                warehouse=warehouse,
+                scanned_serials=frappe.as_json(
+                    list(
+                        data[
+                            "scanned_serials"
+                        ]
+                    )
+                ),
+                scanned_items=frappe.as_json(
+                    data[
+                        "scanned_items"
+                    ]
+                )
+            )
+
+            if not result or not result.get("success"):
+
+                frappe.throw(
+                    _(
+                        "Stock Taking analysis failed "
+                        "for Warehouse <b>{0}</b>."
+                    ).format(
+                        warehouse
+                    )
+                )
+
+            if result.get("issue_items"):
+
+                all_issue_items.extend(
+                    result.get(
+                        "issue_items"
+                    )
+                )
+
+            if result.get("receipt_items"):
+
+                all_receipt_items.extend(
+                    result.get(
+                        "receipt_items"
+                    )
+                )
+
+        # =====================================================
+        # CREATE NORMAL DELIVERY NOTE - DRAFT
+        # =====================================================
+
+        normal_dn = None
+
+        if all_issue_items:
+
+            normal_dn = create_delivery_note(
+                frappe.as_json({
+                    "stock_taking_name": stock_taking_name,
+                    "items": all_issue_items
+                })
+            )
+
+        # =====================================================
+        # CREATE RETURN DELIVERY NOTE - DRAFT
+        #
+        # IMPORTANT:
+        # return_against will remain blank initially.
+        #
+        # It will be updated automatically when the normal
+        # Delivery Note is submitted.
+        # =====================================================
+
+        return_dn = None
+
+        if all_receipt_items:
+
+            return_dn = create_delivery_note_return(
+                frappe.as_json({
+                    "stock_taking_name": stock_taking_name,
+                    "items": all_receipt_items
+                })
+            )
+
+        # =====================================================
+        # LOG RESULT
+        # =====================================================
+
+        if normal_dn and return_dn:
+
+            frappe.publish_realtime(
+                "msgprint",
+                {
+                    "message": _(
+                        "Stock Taking <b>{0}</b> processed.<br><br>"
+                        "Normal Delivery Note <b>{1}</b> created as Draft.<br>"
+                        "Return Delivery Note <b>{2}</b> created as Draft.<br><br>"
+                        "Please submit the Normal Delivery Note first."
+                    ).format(
+                        stock_taking_name,
+                        normal_dn.get("name"),
+                        return_dn.get("name")
+                    ),
+                    "indicator": "green"
+                },
+                user=frappe.session.user
+            )
+
+        elif normal_dn:
+
+            frappe.publish_realtime(
+                "msgprint",
+                {
+                    "message": _(
+                        "Stock Taking <b>{0}</b> processed.<br><br>"
+                        "Normal Delivery Note <b>{1}</b> "
+                        "created as Draft."
+                    ).format(
+                        stock_taking_name,
+                        normal_dn.get("name")
+                    ),
+                    "indicator": "green"
+                },
+                user=frappe.session.user
+            )
+
+        elif return_dn:
+
+            frappe.publish_realtime(
+                "msgprint",
+                {
+                    "message": _(
+                        "Stock Taking <b>{0}</b> processed.<br><br>"
+                        "Return Delivery Note <b>{1}</b> "
+                        "created as Draft.<br><br>"
+                        "No normal Delivery Note was required."
+                    ).format(
+                        stock_taking_name,
+                        return_dn.get("name")
+                    ),
+                    "indicator": "orange"
+                },
+                user=frappe.session.user
+            )
+
+        else:
+
+            frappe.publish_realtime(
+                "msgprint",
+                {
+                    "message": _(
+                        "Stock Taking <b>{0}</b> completed. "
+                        "No stock difference found."
+                    ).format(
+                        stock_taking_name
+                    ),
+                    "indicator": "green"
+                },
+                user=frappe.session.user
+            )
+
+    except Exception:
+
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"Stock Taking Processing Failed - {stock_taking_name}"
+        )
+
+        frappe.publish_realtime(
+            "msgprint",
+            {
+                "message": _(
+                    "Stock Taking <b>{0}</b> processing failed. "
+                    "Please check Error Log."
+                ).format(
+                    stock_taking_name
+                ),
+                "indicator": "red"
+            },
+            user=frappe.session.user
+        )
+
 
 # =============================================================
 # SCAN BARCODE
@@ -51,7 +403,10 @@ def scan_barcode(code, warehouses=None):
     try:
 
         if isinstance(warehouses, str):
-            warehouses = frappe.parse_json(warehouses)
+
+            warehouses = frappe.parse_json(
+                warehouses
+            )
 
         warehouses = warehouses or []
 
@@ -102,6 +457,7 @@ def scan_barcode(code, warehouses=None):
                 "Item",
                 code
             ):
+
                 item_code = code
 
         # -----------------------------------------------------
@@ -144,7 +500,10 @@ def scan_barcode(code, warehouses=None):
         }
 
         if warehouse:
-            serial_filters["warehouse"] = warehouse
+
+            serial_filters[
+                "warehouse"
+            ] = warehouse
 
         serials = frappe.get_all(
             "Serial No",
@@ -211,8 +570,14 @@ def get_system_serials(
 @frappe.whitelist()
 def make_serial_active(serials):
 
-    if isinstance(serials, str):
-        serials = frappe.parse_json(serials)
+    if isinstance(
+        serials,
+        str
+    ):
+
+        serials = frappe.parse_json(
+            serials
+        )
 
     for serial_no in serials or []:
 
@@ -272,21 +637,7 @@ def get_non_serialized_stock(warehouse):
 
 
 # =============================================================
-# OPTIMIZED STOCK TAKING ANALYSIS
-#
-# IMPORTANT:
-# One API call per warehouse.
-#
-# Previously:
-#   get_warehouse_serials
-#   get_non_serialized_stock
-#   get_system_serials
-#   get_non_serialized_stock
-#   get_system_serials
-#   ...
-#
-# Now:
-#   One call per warehouse
+# ANALYZE STOCK TAKING
 # =============================================================
 
 @frappe.whitelist()
@@ -302,6 +653,7 @@ def analyze_stock_taking(
             scanned_serials,
             str
         ):
+
             scanned_serials = frappe.parse_json(
                 scanned_serials
             )
@@ -310,6 +662,7 @@ def analyze_stock_taking(
             scanned_items,
             str
         ):
+
             scanned_items = frappe.parse_json(
                 scanned_items
             )
@@ -357,7 +710,9 @@ def analyze_stock_taking(
 
             system_serial_map[
                 row.item_code
-            ].add(row.name)
+            ].add(
+                row.name
+            )
 
         # -----------------------------------------------------
         # MISSING SERIALS
@@ -417,6 +772,9 @@ def analyze_stock_taking(
             scanned_qty = flt(
                 scanned_items.get(
                     item_code,
+                    {}
+                ).get(
+                    "physical_count",
                     0
                 )
             )
@@ -450,7 +808,10 @@ def analyze_stock_taking(
         ):
 
             physical_qty = flt(
-                data.get("physical_count", 0)
+                data.get(
+                    "physical_count",
+                    0
+                )
             )
 
             item_serials = data.get(
@@ -479,18 +840,22 @@ def analyze_stock_taking(
 
                 if extra_serials:
 
+                    unique_extra_serials = list(
+                        dict.fromkeys(
+                            extra_serials
+                        )
+                    )
+
                     receipt_items.append({
                         "item_code": item_code,
                         "warehouse": warehouse,
                         "serial_no": "\n".join(
                             sorted(
-                                set(
-                                    extra_serials
-                                )
+                                unique_extra_serials
                             )
                         ),
                         "qty": len(
-                            set(extra_serials)
+                            unique_extra_serials
                         )
                     })
 
@@ -543,8 +908,6 @@ def analyze_stock_taking(
 
 # =============================================================
 # ITEM DELIVERY RATE MAP
-#
-# ONE QUERY FOR ALL ITEMS
 # =============================================================
 
 def get_item_delivery_rate_map(
@@ -552,13 +915,11 @@ def get_item_delivery_rate_map(
     company
 ):
 
-    item_codes = list(
-        {
-            item
-            for item in item_codes
-            if item
-        }
-    )
+    item_codes = list({
+        item
+        for item in item_codes
+        if item
+    })
 
     if not item_codes:
         return {}
@@ -664,39 +1025,49 @@ def get_item_delivery_rate_map(
 
 
 # =============================================================
-# CREATE DELIVERY NOTE
-#
-# MATERIAL ISSUE REPLACEMENT
+# CREATE NORMAL DELIVERY NOTE
 # =============================================================
 
 @frappe.whitelist()
 def create_delivery_note(doc):
+
     import json
-    from decimal import Decimal, ROUND_HALF_UP
 
-    # =========================================================
-    # PARSE DOCUMENT
-    # =========================================================
+    if isinstance(
+        doc,
+        str
+    ):
 
-    if isinstance(doc, str):
-        doc = json.loads(doc)
+        doc = json.loads(
+            doc
+        )
 
     if not doc:
-        frappe.throw(_("Delivery Note data is required."))
+
+        frappe.throw(
+            _("Delivery Note data is required.")
+        )
+
+    # =========================================================
+    # STOCK TAKING REFERENCE
+    # =========================================================
+
+    stock_taking_name = (
+        doc.get("stock_taking_name")
+        or doc.get("custom_stock_taking")
+        or doc.get("stock_taking")
+    )
+
+    if not stock_taking_name:
+
+        frappe.throw(
+            _("Stock Taking reference is required.")
+        )
 
     # =========================================================
     # STOCK TAKING
     # =========================================================
 
-    stock_taking_name = (
-        doc.get("custom_stock_taking")
-        or doc.get("stock_taking")
-    )
-
-    if not stock_taking_name:
-        frappe.throw(_("Stock Taking reference is required."))
-
-    # Only required fields instead of loading complete document
     stock_taking = frappe.db.get_value(
         "Stock Taking",
         stock_taking_name,
@@ -705,6 +1076,7 @@ def create_delivery_note(doc):
     )
 
     if not stock_taking:
+
         frappe.throw(
             _("Stock Taking {0} not found.").format(
                 stock_taking_name
@@ -714,6 +1086,7 @@ def create_delivery_note(doc):
     company = stock_taking.company
 
     if not company:
+
         frappe.throw(
             _("Company is required in Stock Taking.")
         )
@@ -734,11 +1107,14 @@ def create_delivery_note(doc):
     )
 
     if not customer:
+
         frappe.throw(
             _(
                 "Please add Company <b>{0}</b> "
                 "and its Customer in Stock Taking Settings."
-            ).format(company)
+            ).format(
+                company
+            )
         )
 
     # =========================================================
@@ -756,31 +1132,152 @@ def create_delivery_note(doc):
         order_by="idx asc"
     )
 
+    # ---------------------------------------------------------
+    # FALLBACK
+    # ---------------------------------------------------------
+
     if not default_warehouse:
+
+        for row in (
+            doc.get("items") or []
+        ):
+
+            if isinstance(
+                row,
+                dict
+            ):
+
+                warehouse = row.get(
+                    "warehouse"
+                )
+
+            else:
+
+                warehouse = getattr(
+                    row,
+                    "warehouse",
+                    None
+                )
+
+            if warehouse:
+
+                default_warehouse = warehouse
+                break
+
+    if not default_warehouse:
+
         frappe.throw(
             _(
                 "No Warehouse found in Stock Taking {0}."
-            ).format(stock_taking_name)
+            ).format(
+                stock_taking_name
+            )
         )
 
     # =========================================================
-    # CREATE DOCUMENT
+    # CREATE DELIVERY NOTE
     # =========================================================
 
-    dn = frappe.get_doc(doc)
+    dn = frappe.new_doc(
+        "Delivery Note"
+    )
+
+    dn.custom_stock_taking = (
+        stock_taking_name
+    )
 
     dn.company = company
     dn.customer = customer
 
+    # Normal Delivery Note
+
     dn.is_return = 0
     dn.return_against = None
 
-    # IMPORTANT:
-    # Prevent internal transfer validation
     dn.is_internal_customer = 0
     dn.represents_company = None
 
-    dn.set_warehouse = default_warehouse
+    dn.set_warehouse = (
+        default_warehouse
+    )
+
+    # =========================================================
+    # ADD ITEMS
+    # =========================================================
+
+    for source_item in (
+        doc.get("items") or []
+    ):
+
+        if hasattr(
+            source_item,
+            "as_dict"
+        ):
+
+            source_item = (
+                source_item.as_dict()
+            )
+
+        item = dn.append(
+            "items",
+            {}
+        )
+
+        if isinstance(
+            source_item,
+            dict
+        ):
+
+            for field in [
+                "item_code",
+                "item_name",
+                "description",
+                "qty",
+                "uom",
+                "stock_uom",
+                "conversion_factor",
+                "warehouse",
+                "serial_no",
+                "batch_no",
+                "allow_zero_valuation_rate",
+                "income_account",
+                "cost_center",
+                "project",
+                "project_name",
+            ]:
+
+                if field in source_item:
+
+                    value = (
+                        source_item.get(
+                            field
+                        )
+                    )
+
+                    if value is not None:
+
+                        item.set(
+                            field,
+                            value
+                        )
+
+        item.warehouse = (
+            default_warehouse
+        )
+
+        if hasattr(
+            item,
+            "target_warehouse"
+        ):
+
+            item.target_warehouse = None
+
+        if hasattr(
+            item,
+            "from_warehouse"
+        ):
+
+            item.from_warehouse = None
 
     # =========================================================
     # SIS CONFIGURATION
@@ -788,7 +1285,9 @@ def create_delivery_note(doc):
 
     config = frappe.db.get_value(
         "SIS Configuration",
-        {"company": company},
+        {
+            "company": company
+        },
         [
             "fresh_margin",
             "discounted_margin",
@@ -798,19 +1297,26 @@ def create_delivery_note(doc):
     )
 
     if not config:
+
         frappe.throw(
             _(
                 "SIS Configuration not found "
                 "for Company: {0}"
-            ).format(company)
+            ).format(
+                company
+            )
         )
 
     fresh_margin = Decimal(
-        str(config.fresh_margin or 0)
+        str(
+            config.fresh_margin or 0
+        )
     )
 
     output_gst_min_net_rate = Decimal(
-        str(config.output_gst_min_net_rate or 0)
+        str(
+            config.output_gst_min_net_rate or 0
+        )
     )
 
     # =========================================================
@@ -824,53 +1330,67 @@ def create_delivery_note(doc):
     })
 
     # =========================================================
-    # BATCH MRP
+    # MRP
     # =========================================================
 
     rate_map = {}
 
     if item_codes:
-        rate_map = get_item_delivery_rate_map(
-            item_codes,
-            company
-        ) or {}
+
+        rate_map = (
+            get_item_delivery_rate_map(
+                item_codes,
+                company
+            ) or {}
+        )
 
     # =========================================================
     # DECIMAL HELPERS
     # =========================================================
 
     def D(value):
-        return Decimal(str(value or 0))
+
+        return Decimal(
+            str(value or 0)
+        )
 
     def R2(value):
+
         return value.quantize(
             Decimal("0.01"),
             rounding=ROUND_HALF_UP
         )
 
     # =========================================================
-    # PROCESS ALL ITEMS
+    # PROCESS ITEMS
     # =========================================================
 
-    for idx, item in enumerate(dn.items, start=1):
+    for idx, item in enumerate(
+        dn.items,
+        start=1
+    ):
 
-        # -----------------------------------------------------
-        # WAREHOUSE
-        # -----------------------------------------------------
+        item.warehouse = (
+            default_warehouse
+        )
 
-        item.warehouse = default_warehouse
+        if hasattr(
+            item,
+            "target_warehouse"
+        ):
 
-        if hasattr(item, "target_warehouse"):
             item.target_warehouse = None
 
-        if hasattr(item, "from_warehouse"):
+        if hasattr(
+            item,
+            "from_warehouse"
+        ):
+
             item.from_warehouse = None
 
-        # -----------------------------------------------------
-        # QUANTITY
-        # -----------------------------------------------------
-
-        qty = D(item.qty)
+        qty = D(
+            item.qty
+        )
 
         if qty <= 0:
             continue
@@ -887,6 +1407,7 @@ def create_delivery_note(doc):
         )
 
         if mrp <= 0:
+
             frappe.throw(
                 _(
                     "MRP not found for Item "
@@ -899,8 +1420,13 @@ def create_delivery_note(doc):
                 )
             )
 
-        item.rate = float(mrp)
-        item.price_list_rate = float(mrp)
+        item.rate = float(
+            mrp
+        )
+
+        item.price_list_rate = float(
+            mrp
+        )
 
         # -----------------------------------------------------
         # TAXABLE
@@ -914,19 +1440,32 @@ def create_delivery_note(doc):
         # GST
         # -----------------------------------------------------
 
-        if abs(taxable) <= output_gst_min_net_rate:
-            gst_percent = Decimal("5")
+        if abs(
+            taxable
+        ) <= output_gst_min_net_rate:
+
+            gst_percent = Decimal(
+                "5"
+            )
+
         else:
-            gst_percent = Decimal("18")
+
+            gst_percent = Decimal(
+                "18"
+            )
 
         gst_value = R2(
             taxable
             * gst_percent
-            / (Decimal("100") + gst_percent)
+            / (
+                Decimal("100")
+                + gst_percent
+            )
         )
 
         net_sale_value = R2(
-            taxable - gst_value
+            taxable
+            - gst_value
         )
 
         margin_value = R2(
@@ -938,409 +1477,6 @@ def create_delivery_note(doc):
         # -----------------------------------------------------
         # CUSTOM VALUES
         # -----------------------------------------------------
-
-        item.custom_output_gst_ = float(gst_percent)
-
-        item.custom_output_gst_value = float(
-            gst_value
-        )
-
-        item.custom_net_sale_value = float(
-            net_sale_value
-        )
-
-        item.custom_margin_amount = float(
-            margin_value
-        )
-
-        item.custom_margins_ = float(
-            fresh_margin
-        )
-
-        item.custom_total_invoice_amount = float(
-            taxable
-        )
-
-    # =========================================================
-    # INSERT DRAFT
-    # =========================================================
-
-    # Keep document as Draft
-    dn.docstatus = 0
-
-    dn.flags.ignore_permissions = True
-    dn.flags.ignore_mandatory = True
-    dn.flags.ignore_links = True
-
-    dn.insert(
-        ignore_permissions=True,
-        ignore_mandatory=True
-    )
-
-    return {
-        "name": dn.name,
-        "doctype": "Delivery Note",
-        "docstatus": dn.docstatus
-    }
-
-
-# =============================================================
-# CREATE DELIVERY NOTE RETURN
-# =============================================================
-# =============================================================
-# CREATE DELIVERY NOTE RETURN
-# =============================================================
-
-@frappe.whitelist()
-def create_delivery_note_return(doc):
-    import json
-    from decimal import Decimal, ROUND_HALF_UP
-
-    # =========================================================
-    # PARSE DOCUMENT
-    # =========================================================
-
-    if isinstance(doc, str):
-        doc = json.loads(doc)
-
-    if not doc:
-        frappe.throw(
-            _("Delivery Note data is required.")
-        )
-
-    # =========================================================
-    # STOCK TAKING
-    # =========================================================
-
-    stock_taking_name = (
-        doc.get("custom_stock_taking")
-        or doc.get("stock_taking")
-    )
-
-    if not stock_taking_name:
-        frappe.throw(
-            _("Stock Taking reference is required.")
-        )
-
-    stock_taking = frappe.db.get_value(
-        "Stock Taking",
-        stock_taking_name,
-        ["company"],
-        as_dict=True
-    )
-
-    if not stock_taking:
-        frappe.throw(
-            _("Stock Taking {0} not found.").format(
-                stock_taking_name
-            )
-        )
-
-    company = stock_taking.company
-
-    if not company:
-        frappe.throw(
-            _("Company is required in Stock Taking.")
-        )
-
-    # =========================================================
-    # CUSTOMER
-    # =========================================================
-
-    customer = frappe.db.get_value(
-        "Stock Taking Customer",
-        {
-            "parent": "Stock Taking Settings",
-            "parenttype": "Stock Taking Settings",
-            "parentfield": "stock_taking_customer",
-            "company": company
-        },
-        "customer"
-    )
-
-    if not customer:
-        frappe.throw(
-            _(
-                "Customer is not configured in "
-                "Stock Taking Settings for company {0}."
-            ).format(company)
-        )
-
-    # =========================================================
-    # DEFAULT WAREHOUSE
-    # =========================================================
-
-    default_warehouse = frappe.db.get_value(
-        "stock taking Warehouse",
-        {
-            "parent": stock_taking_name,
-            "parenttype": "Stock Taking",
-            "parentfield": "warehouse"
-        },
-        "warehuose",
-        order_by="idx asc"
-    )
-
-    # Fallback: use warehouse from incoming document items
-    if not default_warehouse:
-
-        for row in (doc.get("items") or []):
-
-            if row.get("warehouse"):
-                default_warehouse = row.get("warehouse")
-                break
-
-    if not default_warehouse:
-        frappe.throw(
-            _(
-                "Warehouse is required to create "
-                "Delivery Note Return."
-            )
-        )
-
-    # =========================================================
-    # CREATE DOCUMENT
-    # =========================================================
-
-    dn = frappe.get_doc(doc)
-
-    dn.company = company
-    dn.customer = customer
-
-    # =========================================================
-    # FIND ORIGINAL SUBMITTED NORMAL DELIVERY NOTE
-    # =========================================================
-    #
-    # Stock Taking se pehle jo NORMAL Delivery Note bana hai
-    # aur submit ho chuka hai, uska name yahan milega.
-    #
-    # Example:
-    #
-    # Stock Taking:
-    # ST-26-27-00015
-    #
-    # Normal Delivery Note:
-    # DN-26-27-00125
-    #
-    # Return Delivery Note:
-    # return_against = DN-26-27-00125
-    #
-    # =========================================================
-
-    original_dn = frappe.db.get_value(
-        "Delivery Note",
-        {
-            "custom_stock_taking": stock_taking_name,
-            "company": company,
-            "is_return": 0,
-            "docstatus": 1
-        },
-        "name",
-        order_by="creation desc"
-    )
-
-    if not original_dn:
-        frappe.throw(
-            _(
-                "Submitted normal Delivery Note not found "
-                "for Stock Taking {0}. "
-                "Please submit the normal Delivery Note "
-                "before creating the Return Delivery Note."
-            ).format(
-                stock_taking_name
-            )
-        )
-
-    # =========================================================
-    # RETURN DELIVERY NOTE SETTINGS
-    # =========================================================
-
-    dn.is_return = 1
-
-    # IMPORTANT:
-    # Return Against mein Stock Taking ID nahi jayegi.
-    # Yahan ORIGINAL SUBMITTED DELIVERY NOTE ka name jayega.
-    #
-    # Example:
-    # dn.return_against = "DN-26-27-00125"
-    #
-    dn.return_against = original_dn
-
-    # Prevent internal transfer validation
-    dn.is_internal_customer = 0
-    dn.represents_company = None
-
-    dn.set_warehouse = default_warehouse
-
-    # =========================================================
-    # SIS CONFIGURATION
-    # =========================================================
-
-    config = frappe.db.get_value(
-        "SIS Configuration",
-        {"company": company},
-        [
-            "fresh_margin",
-            "discounted_margin",
-            "output_gst_min_net_rate"
-        ],
-        as_dict=True
-    )
-
-    if not config:
-        frappe.throw(
-            _(
-                "SIS Configuration not found "
-                "for Company: {0}"
-            ).format(company)
-        )
-
-    fresh_margin = Decimal(
-        str(config.fresh_margin or 0)
-    )
-
-    output_gst_min_net_rate = Decimal(
-        str(config.output_gst_min_net_rate or 0)
-    )
-
-    # =========================================================
-    # ITEM CODES
-    # =========================================================
-
-    item_codes = list({
-        item.item_code
-        for item in dn.items
-        if item.item_code
-    })
-
-    rate_map = {}
-
-    if item_codes:
-        rate_map = get_item_delivery_rate_map(
-            item_codes,
-            company
-        ) or {}
-
-    # =========================================================
-    # DECIMAL HELPERS
-    # =========================================================
-
-    def D(value):
-        return Decimal(str(value or 0))
-
-    def R2(value):
-        return value.quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP
-        )
-
-    # =========================================================
-    # PROCESS ITEMS
-    # =========================================================
-
-    for idx, item in enumerate(dn.items, start=1):
-
-        # -----------------------------------------------------
-        # WAREHOUSE
-        # -----------------------------------------------------
-
-        item.warehouse = (
-            item.warehouse
-            or default_warehouse
-        )
-
-        # Return DN ko internal transfer na banne dein
-        if hasattr(item, "target_warehouse"):
-            item.target_warehouse = None
-
-        if hasattr(item, "from_warehouse"):
-            item.from_warehouse = None
-
-        # -----------------------------------------------------
-        # QUANTITY
-        # -----------------------------------------------------
-
-        qty = D(item.qty)
-
-        # Return DN mein quantity negative honi chahiye
-        if qty > 0:
-            qty = -qty
-
-        if qty == 0:
-            frappe.throw(
-                _(
-                    "Row {0}: Quantity is required "
-                    "for Item {1}."
-                ).format(
-                    idx,
-                    item.item_code
-                )
-            )
-
-        item.qty = float(qty)
-
-        # -----------------------------------------------------
-        # MRP
-        # -----------------------------------------------------
-
-        mrp = D(
-            rate_map.get(
-                item.item_code,
-                0
-            )
-        )
-
-        if mrp <= 0:
-            frappe.throw(
-                _(
-                    "MRP not found for Item "
-                    "<b>{0}</b>."
-                ).format(
-                    item.item_code
-                )
-            )
-
-        item.rate = float(mrp)
-        item.price_list_rate = float(mrp)
-
-        # -----------------------------------------------------
-        # TAXABLE
-        # -----------------------------------------------------
-
-        taxable = R2(
-            mrp * qty
-        )
-
-        # -----------------------------------------------------
-        # GST
-        # -----------------------------------------------------
-
-        if abs(taxable) <= output_gst_min_net_rate:
-            gst_percent = Decimal("5")
-        else:
-            gst_percent = Decimal("18")
-
-        gst_value = R2(
-            taxable
-            * gst_percent
-            / (Decimal("100") + gst_percent)
-        )
-
-        net_sale_value = R2(
-            taxable - gst_value
-        )
-
-        margin_value = R2(
-            taxable
-            * fresh_margin
-            / Decimal("100")
-        )
-
-        # -----------------------------------------------------
-        # VALUES
-        # -----------------------------------------------------
-
-        item.amount = float(taxable)
 
         item.custom_output_gst_ = float(
             gst_percent
@@ -1367,7 +1503,7 @@ def create_delivery_note_return(doc):
         )
 
     # =========================================================
-    # INSERT DRAFT
+    # INSERT AS DRAFT
     # =========================================================
 
     dn.docstatus = 0
@@ -1376,13 +1512,608 @@ def create_delivery_note_return(doc):
     dn.flags.ignore_mandatory = True
     dn.flags.ignore_links = True
 
-    dn.insert(
-        ignore_permissions=True,
-        ignore_mandatory=True
+    try:
+
+        dn.insert(
+            ignore_permissions=True,
+            ignore_mandatory=True
+        )
+
+    except Exception:
+
+        frappe.log_error(
+            frappe.get_traceback(),
+            "Stock Taking - Delivery Note Creation Failed"
+        )
+
+        frappe.throw(
+            _(
+                "Delivery Note could not be created for "
+                "Stock Taking <b>{0}</b>.<br><br>"
+                "{1}"
+            ).format(
+                stock_taking_name,
+                frappe.get_traceback()
+            )
+        )
+
+    return {
+        "name": dn.name,
+        "doctype": "Delivery Note",
+        "docstatus": dn.docstatus,
+        "custom_stock_taking": (
+            dn.custom_stock_taking
+        )
+    }
+
+
+# =============================================================
+# CREATE RETURN DELIVERY NOTE - DRAFT
+#
+# IMPORTANT:
+# return_against is intentionally BLANK.
+#
+# It will be automatically updated after normal Delivery Note
+# is submitted.
+# =============================================================
+
+@frappe.whitelist()
+def create_delivery_note_return(doc):
+
+    import json
+
+    if isinstance(
+        doc,
+        str
+    ):
+
+        doc = json.loads(
+            doc
+        )
+
+    if not doc:
+
+        frappe.throw(
+            _("Delivery Note data is required.")
+        )
+
+    # =========================================================
+    # STOCK TAKING REFERENCE
+    # =========================================================
+
+    stock_taking_name = (
+        doc.get("stock_taking_name")
+        or doc.get("custom_stock_taking")
+        or doc.get("stock_taking")
+    )
+
+    if not stock_taking_name:
+
+        frappe.throw(
+            _("Stock Taking reference is required.")
+        )
+
+    # =========================================================
+    # STOCK TAKING
+    # =========================================================
+
+    stock_taking = frappe.db.get_value(
+        "Stock Taking",
+        stock_taking_name,
+        ["company"],
+        as_dict=True
+    )
+
+    if not stock_taking:
+
+        frappe.throw(
+            _("Stock Taking {0} not found.").format(
+                stock_taking_name
+            )
+        )
+
+    company = stock_taking.company
+
+    if not company:
+
+        frappe.throw(
+            _("Company is required in Stock Taking.")
+        )
+
+    # =========================================================
+    # CUSTOMER
+    # =========================================================
+
+    customer = frappe.db.get_value(
+        "Stock Taking Customer",
+        {
+            "parent": "Stock Taking Settings",
+            "parenttype": "Stock Taking Settings",
+            "parentfield": "stock_taking_customer",
+            "company": company
+        },
+        "customer"
+    )
+
+    if not customer:
+
+        frappe.throw(
+            _(
+                "Customer is not configured in "
+                "Stock Taking Settings for company {0}."
+            ).format(
+                company
+            )
+        )
+
+    # =========================================================
+    # DEFAULT WAREHOUSE
+    # =========================================================
+
+    default_warehouse = frappe.db.get_value(
+        "stock taking Warehouse",
+        {
+            "parent": stock_taking_name,
+            "parenttype": "Stock Taking",
+            "parentfield": "warehouse"
+        },
+        "warehuose",
+        order_by="idx asc"
+    )
+
+    # ---------------------------------------------------------
+    # FALLBACK
+    # ---------------------------------------------------------
+
+    if not default_warehouse:
+
+        for row in (
+            doc.get("items") or []
+        ):
+
+            if isinstance(
+                row,
+                dict
+            ):
+
+                warehouse = row.get(
+                    "warehouse"
+                )
+
+            else:
+
+                warehouse = getattr(
+                    row,
+                    "warehouse",
+                    None
+                )
+
+            if warehouse:
+
+                default_warehouse = warehouse
+                break
+
+    if not default_warehouse:
+
+        frappe.throw(
+            _(
+                "Warehouse is required to create "
+                "Delivery Note Return."
+            )
+        )
+
+    # =========================================================
+    # CREATE RETURN DELIVERY NOTE
+    # =========================================================
+
+    dn = frappe.new_doc(
+        "Delivery Note"
+    )
+
+    dn.custom_stock_taking = (
+        stock_taking_name
+    )
+
+    dn.company = company
+    dn.customer = customer
+
+    # ---------------------------------------------------------
+    # RETURN
+    # ---------------------------------------------------------
+
+    dn.is_return = 1
+
+    # VERY IMPORTANT:
+    # Keep blank initially.
+    #
+    # This will be updated after normal Delivery Note
+    # is submitted.
+
+    dn.return_against = None
+
+    dn.is_internal_customer = 0
+    dn.represents_company = None
+
+    dn.set_warehouse = (
+        default_warehouse
     )
 
     # =========================================================
-    # RETURN RESPONSE
+    # ITEMS
+    # =========================================================
+
+    source_items = (
+        doc.get("items") or []
+    )
+
+    if not source_items:
+
+        frappe.throw(
+            _(
+                "No items found for Return Delivery Note "
+                "for Stock Taking {0}."
+            ).format(
+                stock_taking_name
+            )
+        )
+
+    for source_item in source_items:
+
+        if hasattr(
+            source_item,
+            "as_dict"
+        ):
+
+            source_item = (
+                source_item.as_dict()
+            )
+
+        item = dn.append(
+            "items",
+            {}
+        )
+
+        if isinstance(
+            source_item,
+            dict
+        ):
+
+            for field in [
+                "item_code",
+                "item_name",
+                "description",
+                "qty",
+                "uom",
+                "stock_uom",
+                "conversion_factor",
+                "warehouse",
+                "serial_no",
+                "batch_no",
+                "allow_zero_valuation_rate",
+                "income_account",
+                "cost_center",
+                "project",
+                "project_name",
+            ]:
+
+                if field in source_item:
+
+                    value = (
+                        source_item.get(
+                            field
+                        )
+                    )
+
+                    if value is not None:
+
+                        item.set(
+                            field,
+                            value
+                        )
+
+        item.warehouse = (
+            item.warehouse
+            or default_warehouse
+        )
+
+        if hasattr(
+            item,
+            "target_warehouse"
+        ):
+
+            item.target_warehouse = None
+
+        if hasattr(
+            item,
+            "from_warehouse"
+        ):
+
+            item.from_warehouse = None
+
+    # =========================================================
+    # SIS CONFIGURATION
+    # =========================================================
+
+    config = frappe.db.get_value(
+        "SIS Configuration",
+        {
+            "company": company
+        },
+        [
+            "fresh_margin",
+            "discounted_margin",
+            "output_gst_min_net_rate"
+        ],
+        as_dict=True
+    )
+
+    if not config:
+
+        frappe.throw(
+            _(
+                "SIS Configuration not found "
+                "for Company: {0}"
+            ).format(
+                company
+            )
+        )
+
+    fresh_margin = Decimal(
+        str(
+            config.fresh_margin or 0
+        )
+    )
+
+    output_gst_min_net_rate = Decimal(
+        str(
+            config.output_gst_min_net_rate or 0
+        )
+    )
+
+    # =========================================================
+    # ITEM CODES
+    # =========================================================
+
+    item_codes = list({
+        item.item_code
+        for item in dn.items
+        if item.item_code
+    })
+
+    # =========================================================
+    # MRP
+    # =========================================================
+
+    rate_map = {}
+
+    if item_codes:
+
+        rate_map = (
+            get_item_delivery_rate_map(
+                item_codes,
+                company
+            ) or {}
+        )
+
+    # =========================================================
+    # DECIMAL HELPERS
+    # =========================================================
+
+    def D(value):
+
+        return Decimal(
+            str(value or 0)
+        )
+
+    def R2(value):
+
+        return value.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
+        )
+
+    # =========================================================
+    # PROCESS ITEMS
+    # =========================================================
+
+    for idx, item in enumerate(
+        dn.items,
+        start=1
+    ):
+
+        item.warehouse = (
+            item.warehouse
+            or default_warehouse
+        )
+
+        if hasattr(
+            item,
+            "target_warehouse"
+        ):
+
+            item.target_warehouse = None
+
+        if hasattr(
+            item,
+            "from_warehouse"
+        ):
+
+            item.from_warehouse = None
+
+        # -----------------------------------------------------
+        # QUANTITY
+        # -----------------------------------------------------
+
+        qty = D(
+            item.qty
+        )
+
+        # Return quantity must be negative
+
+        if qty > 0:
+
+            qty = -qty
+
+        if qty == 0:
+
+            frappe.throw(
+                _(
+                    "Row {0}: Quantity is required "
+                    "for Item {1}."
+                ).format(
+                    idx,
+                    item.item_code
+                )
+            )
+
+        item.qty = float(
+            qty
+        )
+
+        # -----------------------------------------------------
+        # MRP
+        # -----------------------------------------------------
+
+        mrp = D(
+            rate_map.get(
+                item.item_code,
+                0
+            )
+        )
+
+        if mrp <= 0:
+
+            frappe.throw(
+                _(
+                    "MRP not found for Item "
+                    "<b>{0}</b>."
+                ).format(
+                    item.item_code
+                )
+            )
+
+        item.rate = float(
+            mrp
+        )
+
+        item.price_list_rate = float(
+            mrp
+        )
+
+        # -----------------------------------------------------
+        # TAXABLE
+        # -----------------------------------------------------
+
+        taxable = R2(
+            mrp * qty
+        )
+
+        # -----------------------------------------------------
+        # GST
+        # -----------------------------------------------------
+
+        if abs(
+            taxable
+        ) <= output_gst_min_net_rate:
+
+            gst_percent = Decimal(
+                "5"
+            )
+
+        else:
+
+            gst_percent = Decimal(
+                "18"
+            )
+
+        gst_value = R2(
+            taxable
+            * gst_percent
+            / (
+                Decimal("100")
+                + gst_percent
+            )
+        )
+
+        net_sale_value = R2(
+            taxable
+            - gst_value
+        )
+
+        margin_value = R2(
+            taxable
+            * fresh_margin
+            / Decimal("100")
+        )
+
+        # -----------------------------------------------------
+        # CUSTOM VALUES
+        # -----------------------------------------------------
+
+        item.amount = float(
+            taxable
+        )
+
+        item.custom_output_gst_ = float(
+            gst_percent
+        )
+
+        item.custom_output_gst_value = float(
+            gst_value
+        )
+
+        item.custom_net_sale_value = float(
+            net_sale_value
+        )
+
+        item.custom_margin_amount = float(
+            margin_value
+        )
+
+        item.custom_margins_ = float(
+            fresh_margin
+        )
+
+        item.custom_total_invoice_amount = float(
+            taxable
+        )
+
+    # =========================================================
+    # INSERT AS DRAFT
+    # =========================================================
+
+    dn.docstatus = 0
+
+    dn.flags.ignore_permissions = True
+    dn.flags.ignore_mandatory = True
+    dn.flags.ignore_links = True
+
+    try:
+
+        dn.insert(
+            ignore_permissions=True,
+            ignore_mandatory=True
+        )
+
+    except Exception:
+
+        frappe.log_error(
+            frappe.get_traceback(),
+            "Stock Taking - Return Delivery Note Creation Failed"
+        )
+
+        frappe.throw(
+            _(
+                "Return Delivery Note could not be created "
+                "for Stock Taking <b>{0}</b>.<br><br>{1}"
+            ).format(
+                stock_taking_name,
+                frappe.get_traceback()
+            )
+        )
+
+    # =========================================================
+    # RESPONSE
     # =========================================================
 
     return {
@@ -1390,8 +2121,109 @@ def create_delivery_note_return(doc):
         "doctype": "Delivery Note",
         "docstatus": dn.docstatus,
         "is_return": dn.is_return,
+
+        # Blank initially.
+        # Will be updated after normal DN submit.
         "return_against": dn.return_against,
+
         "customer": dn.customer,
         "company": dn.company,
-        "set_warehouse": dn.set_warehouse
+        "set_warehouse": dn.set_warehouse,
+        "custom_stock_taking": (
+            dn.custom_stock_taking
+        )
     }
+
+
+# =============================================================
+# AUTO LINK RETURN DN AFTER NORMAL DN SUBMIT
+# =============================================================
+
+def link_return_delivery_note(doc, method=None):
+
+    try:
+
+        # =====================================================
+        # ONLY NORMAL DELIVERY NOTE
+        # =====================================================
+
+        if doc.doctype != "Delivery Note":
+            return
+
+        if doc.docstatus != 1:
+            return
+
+        if doc.is_return:
+            return
+
+        stock_taking_name = (
+            doc.get("custom_stock_taking")
+        )
+
+        if not stock_taking_name:
+            return
+
+        # =====================================================
+        # FIND DRAFT RETURN DELIVERY NOTE
+        # =====================================================
+
+        return_dn_name = frappe.db.get_value(
+            "Delivery Note",
+            {
+                "custom_stock_taking": stock_taking_name,
+                "is_return": 1,
+                "docstatus": 0
+            },
+            "name",
+            order_by="creation desc"
+        )
+
+        if not return_dn_name:
+            return
+
+        # =====================================================
+        # UPDATE RETURN AGAINST
+        # =====================================================
+
+        frappe.db.set_value(
+            "Delivery Note",
+            return_dn_name,
+            "return_against",
+            doc.name,
+            update_modified=True
+        )
+
+        # =====================================================
+        # CLEAR CACHE
+        # =====================================================
+
+        frappe.clear_document_cache(
+            "Delivery Note",
+            return_dn_name
+        )
+
+        # =====================================================
+        # MESSAGE
+        # =====================================================
+
+        frappe.msgprint(
+            _(
+                "Return Delivery Note "
+                "<b>{0}</b> has been linked against "
+                "submitted Delivery Note <b>{1}</b>."
+            ).format(
+                return_dn_name,
+                doc.name
+            ),
+            indicator="green"
+        )
+
+    except Exception:
+
+        frappe.log_error(
+            frappe.get_traceback(),
+            "Stock Taking - Link Return Delivery Note Failed"
+        )
+
+        # Don't block normal Delivery Note submission
+        # because of linking issue.
