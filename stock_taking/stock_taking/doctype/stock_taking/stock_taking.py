@@ -17,49 +17,6 @@ class StockTaking(Document):
 
     def before_cancel(self):
 
-        # -----------------------------------------------------
-        # STOCK ENTRIES
-        # -----------------------------------------------------
-
-        stock_entries = frappe.get_all(
-            "Stock Entry",
-            filters={
-                "custom_stock_taking": self.name
-            },
-            fields=[
-                "name",
-                "docstatus"
-            ]
-        )
-
-        for se in stock_entries:
-
-            if se.docstatus == 1:
-
-                frappe.throw(
-                    _(
-                        "Cannot cancel Stock Taking because "
-                        "Stock Entry <b>{0}</b> is Submitted. "
-                        "Please cancel it first."
-                    ).format(se.name)
-                )
-
-            elif se.docstatus == 0:
-
-                doc = frappe.get_doc(
-                    "Stock Entry",
-                    se.name
-                )
-
-                doc.flags.ignore_permissions = True
-                doc.delete(
-                    ignore_permissions=True
-                )
-
-        # -----------------------------------------------------
-        # DELIVERY NOTES
-        # -----------------------------------------------------
-
         delivery_notes = frappe.get_all(
             "Delivery Note",
             filters={
@@ -73,6 +30,7 @@ class StockTaking(Document):
 
         for dn in delivery_notes:
 
+            # Submitted DN cannot be deleted
             if dn.docstatus == 1:
 
                 frappe.throw(
@@ -82,19 +40,6 @@ class StockTaking(Document):
                         "Please cancel it first."
                     ).format(dn.name)
                 )
-
-            elif dn.docstatus == 0:
-
-                doc = frappe.get_doc(
-                    "Delivery Note",
-                    dn.name
-                )
-
-                doc.flags.ignore_permissions = True
-                doc.delete(
-                    ignore_permissions=True
-                )
-
 
 # =============================================================
 # SCAN BARCODE
@@ -1042,6 +987,9 @@ def create_delivery_note(doc):
 # =============================================================
 # CREATE DELIVERY NOTE RETURN
 # =============================================================
+# =============================================================
+# CREATE DELIVERY NOTE RETURN
+# =============================================================
 
 @frappe.whitelist()
 def create_delivery_note_return(doc):
@@ -1159,8 +1107,64 @@ def create_delivery_note_return(doc):
     dn.company = company
     dn.customer = customer
 
+    # =========================================================
+    # FIND ORIGINAL SUBMITTED NORMAL DELIVERY NOTE
+    # =========================================================
+    #
+    # Stock Taking se pehle jo NORMAL Delivery Note bana hai
+    # aur submit ho chuka hai, uska name yahan milega.
+    #
+    # Example:
+    #
+    # Stock Taking:
+    # ST-26-27-00015
+    #
+    # Normal Delivery Note:
+    # DN-26-27-00125
+    #
+    # Return Delivery Note:
+    # return_against = DN-26-27-00125
+    #
+    # =========================================================
+
+    original_dn = frappe.db.get_value(
+        "Delivery Note",
+        {
+            "custom_stock_taking": stock_taking_name,
+            "company": company,
+            "is_return": 0,
+            "docstatus": 1
+        },
+        "name",
+        order_by="creation desc"
+    )
+
+    if not original_dn:
+        frappe.throw(
+            _(
+                "Submitted normal Delivery Note not found "
+                "for Stock Taking {0}. "
+                "Please submit the normal Delivery Note "
+                "before creating the Return Delivery Note."
+            ).format(
+                stock_taking_name
+            )
+        )
+
+    # =========================================================
+    # RETURN DELIVERY NOTE SETTINGS
+    # =========================================================
+
     dn.is_return = 1
-    dn.return_against = None
+
+    # IMPORTANT:
+    # Return Against mein Stock Taking ID nahi jayegi.
+    # Yahan ORIGINAL SUBMITTED DELIVERY NOTE ka name jayega.
+    #
+    # Example:
+    # dn.return_against = "DN-26-27-00125"
+    #
+    dn.return_against = original_dn
 
     # Prevent internal transfer validation
     dn.is_internal_customer = 0
@@ -1245,6 +1249,7 @@ def create_delivery_note_return(doc):
             or default_warehouse
         )
 
+        # Return DN ko internal transfer na banne dein
         if hasattr(item, "target_warehouse"):
             item.target_warehouse = None
 
@@ -1257,6 +1262,7 @@ def create_delivery_note_return(doc):
 
         qty = D(item.qty)
 
+        # Return DN mein quantity negative honi chahiye
         if qty > 0:
             qty = -qty
 
@@ -1369,17 +1375,22 @@ def create_delivery_note_return(doc):
     dn.flags.ignore_permissions = True
     dn.flags.ignore_mandatory = True
     dn.flags.ignore_links = True
-    
+
     dn.insert(
         ignore_permissions=True,
         ignore_mandatory=True
     )
+
+    # =========================================================
+    # RETURN RESPONSE
+    # =========================================================
 
     return {
         "name": dn.name,
         "doctype": "Delivery Note",
         "docstatus": dn.docstatus,
         "is_return": dn.is_return,
+        "return_against": dn.return_against,
         "customer": dn.customer,
         "company": dn.company,
         "set_warehouse": dn.set_warehouse
