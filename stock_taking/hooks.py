@@ -144,7 +144,11 @@ app_license = "mit"
 # 		"on_trash": "method"
 # 	}
 # }
-
+doc_events = {
+    "Delivery Note": {
+        "on_submit": "stock_taking.stock_taking.doctype.stock_taking.stock_taking.link_return_delivery_note"
+    }
+}
 # Scheduled Tasks
 # ---------------
 
