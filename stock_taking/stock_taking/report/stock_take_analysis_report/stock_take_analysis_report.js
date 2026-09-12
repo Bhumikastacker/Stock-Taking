@@ -5,105 +5,109 @@ frappe.query_reports["Stock Take Analysis Report"] = {
         // =========================================================
         // COMPANY
         // =========================================================
-        {
-            fieldname: "company",
-            label: __("Company"),
-            fieldtype: "Link",
-            options: "Company",
-            width: 180,
-            default: "",
+       {
+    fieldname: "company",
+    label: __("Company"),
+    fieldtype: "Link",
+    options: "Company",
+    width: 180,
+    default: "",
 
-            on_change: function(report) {
+    on_change: function(report) {
 
-                let company = report.get_filter_value("company");
+        let company = report.get_filter_value("company");
 
-                if (!company) {
+        if (!company) {
 
-                    report.set_filter_value("stock_taking", "");
-                    report.set_filter_value("warehouse", "");
-                    report.set_filter_value("from_date", "");
-                    report.set_filter_value("to_date", "");
-                    report.set_filter_value("time", "");
+            report.set_filter_value("stock_taking", "");
+            report.set_filter_value("warehouse", "");
+            report.set_filter_value("from_date", "");
+            report.set_filter_value("to_date", "");
+            report.set_filter_value("time", "");
+
+            return;
+        }
+
+        // =================================================
+        // GET LATEST STOCK TAKING FOR COMPANY
+        // =================================================
+
+        frappe.call({
+            method: "frappe.client.get_list",
+
+            args: {
+                doctype: "Stock Taking",
+
+                filters: {
+                    company: company,
+                    docstatus: ["!=", 2]
+                },
+
+                fields: [
+                    "name",
+                    "plan_date",
+                    "plan_time",
+                    "creation",
+                    "modified"
+                ],
+
+                // Latest created/modified Stock Taking first
+                order_by: "modified desc",
+
+                limit_page_length: 1
+            },
+
+            callback: function(r) {
+
+                if (
+                    !r.message ||
+                    !r.message.length
+                ) {
+
+                    report.set_filter_value(
+                        "stock_taking",
+                        ""
+                    );
+
+                    report.set_filter_value(
+                        "warehouse",
+                        ""
+                    );
+
+                    report.set_filter_value(
+                        "from_date",
+                        ""
+                    );
+
+                    report.set_filter_value(
+                        "to_date",
+                        ""
+                    );
+
+                    report.set_filter_value(
+                        "time",
+                        ""
+                    );
 
                     return;
                 }
 
-                // =================================================
-                // GET LATEST STOCK TAKING
-                // =================================================
+                let stock_taking =
+                    r.message[0].name;
 
-                frappe.call({
-                    method: "frappe.client.get_list",
+                report.set_filter_value(
+                    "stock_taking",
+                    stock_taking
+                );
 
-                    args: {
-                        doctype: "Stock Taking",
-
-                        filters: {
-                            company: company
-                        },
-
-                        fields: [
-                            "name",
-                            "plan_date",
-                            "plan_time"
-                        ],
-
-                        order_by: "plan_date desc, plan_time desc",
-
-                        limit_page_length: 1
-                    },
-
-                    callback: function(r) {
-
-                        if (
-                            !r.message ||
-                            !r.message.length
-                        ) {
-
-                            report.set_filter_value(
-                                "stock_taking",
-                                ""
-                            );
-
-                            report.set_filter_value(
-                                "warehouse",
-                                ""
-                            );
-
-                            report.set_filter_value(
-                                "from_date",
-                                ""
-                            );
-
-                            report.set_filter_value(
-                                "to_date",
-                                ""
-                            );
-
-                            report.set_filter_value(
-                                "time",
-                                ""
-                            );
-
-                            return;
-                        }
-
-                        let stock_taking =
-                            r.message[0].name;
-
-                        report.set_filter_value(
-                            "stock_taking",
-                            stock_taking
-                        );
-
-                        set_stock_taking_filters(
-                            report,
-                            stock_taking
-                        );
-                    }
-                });
+                set_stock_taking_filters(
+                    report,
+                    stock_taking
+                );
             }
-        },
+        });
+    }
+},
 
 
         // =========================================================
@@ -397,8 +401,30 @@ function set_stock_taking_filters(
             // PLAN TIME
             // =====================================================
 
-            let plan_time =
-                doc.plan_time || "";
+           let plan_time = doc.plan_time || "";
+
+            // =====================================================
+            // FORMAT TIME AS HH:mm:ss
+            // Frappe Time field requires leading zero
+            // Example: 8:58:17 -> 08:58:17
+            // =====================================================
+
+            if (plan_time) {
+
+                let parts = String(plan_time).split(":");
+
+                let hours = String(parts[0] || "0").padStart(2, "0");
+                let minutes = String(parts[1] || "0").padStart(2, "0");
+                let seconds = String(parts[2] || "0").padStart(2, "0");
+
+                plan_time =
+                    `${hours}:${minutes}:${seconds}`;
+            }
+
+            report.set_filter_value(
+                "time",
+                plan_time
+            );
 
 
             // =====================================================

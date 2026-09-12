@@ -50,10 +50,47 @@ class StockTaking(Document):
 
     def on_submit(self):
 
+        # =========================================================
+        # VALIDATE STOCK TAKING CUSTOMER
+        # =========================================================
+
+        company = self.company
+
+        if not company:
+            frappe.throw(
+                _("Company is mandatory for Stock Taking.")
+            )
+
+        customer = frappe.db.get_value(
+            "Stock Taking Customer",
+            {
+                "parent": "Stock Taking Settings",
+                "parenttype": "Stock Taking Settings",
+                "parentfield": "stock_taking_customer",
+                "company": company
+            },
+            "customer"
+        )
+
+        if not customer:
+            frappe.throw(
+                _(
+                    "Customer is not linked in <b>Stock Taking Settings</b> "
+                    "for Company <b>{0}</b>.<br><br>"
+                    "Please link a Customer for this Company before submitting Stock Taking."
+                ).format(company),
+                title=_("Customer Missing")
+            )
+
+        # =========================================================
+        # PROCESS STOCK TAKING IMMEDIATELY
+        # =========================================================
+
         frappe.enqueue(
             "stock_taking.stock_taking.doctype.stock_taking.stock_taking.process_stock_taking",
             stock_taking_name=self.name,
-            queue="long",
+            queue="short",
+            timeout=900,
             enqueue_after_commit=True,
             job_name=f"Process Stock Taking {self.name}"
         )
@@ -68,8 +105,6 @@ class StockTaking(Document):
             ),
             indicator="blue"
         )
-
-
 # =============================================================
 # PROCESS STOCK TAKING
 #
