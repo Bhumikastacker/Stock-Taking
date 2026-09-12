@@ -14,6 +14,32 @@ class StockTaking(Document):
     # BEFORE CANCEL
     # =========================================================
 
+    # def before_cancel(self):
+
+    #     delivery_notes = frappe.get_all(
+    #         "Delivery Note",
+    #         filters={
+    #             "custom_stock_taking": self.name
+    #         },
+    #         fields=[
+    #             "name",
+    #             "docstatus"
+    #         ]
+    #     )
+
+    #     for dn in delivery_notes:
+
+    #         if dn.docstatus == 1:
+
+    #             frappe.throw(
+    #                 _(
+    #                     "Cannot cancel Stock Taking because "
+    #                     "Delivery Note <b>{0}</b> is Submitted. "
+    #                     "Please cancel it first."
+    #                 ).format(
+    #                     dn.name
+    #                 )
+    #             )
     def before_cancel(self):
 
         delivery_notes = frappe.get_all(
@@ -29,18 +55,30 @@ class StockTaking(Document):
 
         for dn in delivery_notes:
 
+            # -----------------------------------------------------
+            # SUBMITTED DELIVERY NOTE → CANCEL
+            # -----------------------------------------------------
+
             if dn.docstatus == 1:
 
-                frappe.throw(
-                    _(
-                        "Cannot cancel Stock Taking because "
-                        "Delivery Note <b>{0}</b> is Submitted. "
-                        "Please cancel it first."
-                    ).format(
-                        dn.name
-                    )
+                delivery_note = frappe.get_doc(
+                    "Delivery Note",
+                    dn.name
                 )
 
+                delivery_note.cancel()
+
+            # -----------------------------------------------------
+            # DRAFT DELIVERY NOTE → DELETE
+            # -----------------------------------------------------
+
+            elif dn.docstatus == 0:
+
+                frappe.delete_doc(
+                    "Delivery Note",
+                    dn.name,
+                    ignore_permissions=True
+                )
     # =========================================================
     # ON SUBMIT
     #
@@ -1125,7 +1163,18 @@ def create_delivery_note(doc):
         frappe.throw(
             _("Company is required in Stock Taking.")
         )
+    company_abbr = frappe.db.get_value(
+        "Company",
+        company,
+        "abbr"
+    )
 
+    if not company_abbr:
+        frappe.throw(
+            _(
+                "Abbreviation is not configured for Company <b>{0}</b>."
+            ).format(company)
+        )
     # =========================================================
     # CUSTOMER
     # =========================================================
@@ -1222,6 +1271,7 @@ def create_delivery_note(doc):
     )
 
     dn.company = company
+    dn.custom_abbr = company_abbr
     dn.customer = customer
 
     # Normal Delivery Note
@@ -1654,7 +1704,18 @@ def create_delivery_note_return(doc):
         frappe.throw(
             _("Company is required in Stock Taking.")
         )
+    company_abbr = frappe.db.get_value(
+        "Company",
+        company,
+        "abbr"
+    )
 
+    if not company_abbr:
+        frappe.throw(
+            _(
+                "Abbreviation is not configured for Company <b>{0}</b>."
+            ).format(company)
+        )
     # =========================================================
     # CUSTOMER
     # =========================================================
@@ -1751,7 +1812,7 @@ def create_delivery_note_return(doc):
 
     dn.company = company
     dn.customer = customer
-
+    dn.custom_abbr = company_abbr
     # ---------------------------------------------------------
     # RETURN
     # ---------------------------------------------------------
